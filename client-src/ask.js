@@ -16,6 +16,7 @@
     const has = (re) => re.test(t);
     const grainWord = has(/daily|by day|per day/) ? 'day' : has(/weekly|by week|per week/) ? 'week' : has(/quarter/) ? 'quarter' : has(/yearly|annual|by year|per year/) ? 'year' : has(/monthly|by month|per month/) ? 'month' : undefined;
     const nMatch = t.match(/(?:next|coming)\s+(\d+)/); const horizon = nMatch ? Math.min(36, +nMatch[1]) : 6;
+    const pickPreds = (target) => { const tv = E.col(ds, target).values; const r = (n) => { const q = S.correlation(E.col(ds, n).values, tv); return q && isFinite(q.r) ? Math.abs(q.r) : 0; }; return p.numeric.filter((n) => n !== target).sort((x, y) => r(y) - r(x)).slice(0, 4).concat(p.dims.filter((d) => E.col(ds, d).values && new Set(E.col(ds, d).values).size <= 10).slice(0, 2)); };
     const out = (block, extra = {}) => ({ engine: 'local', text: extra.text || block.summary, blocks: [block], followups: extra.followups || block.followups || [], plan: block.plan || [] });
 
     const more = question.match(/^tell me more:\s*(.+)$/i);
@@ -29,7 +30,7 @@
     if (has(/(segment|cluster|personas?|natural groups)/)) return out(A.clusters(ds, nums.length >= 2 ? nums : p.numeric.slice(0, 4)));
     if (has(/(drive|driver|affect|influenc|impact|explain[s]? (the )?(variation|differences)|regress|predictors?|determin)/)) {
       const byPos = hits.filter((h) => h.c.type === 'number').sort((x, y) => y.pos - x.pos).map((h) => h.c.name);
-      const target = (has(/(affect|impact|influenc)/) && byPos.length >= 2 ? byPos[0] : nums[0]) || p.measure; const preds = p.numeric.filter((n) => n !== target).slice(0, 4).concat(p.dims.filter((d) => E.col(ds, d).values && new Set(E.col(ds, d).values).size <= 10).slice(0, 2));
+      const target = (has(/(affect|impact|influenc)/) && byPos.length >= 2 ? byPos[0] : nums[0]) || p.measure; const preds = pickPreds(target);
       return out(A.regression(ds, target, preds));
     }
     if (has(/(correlat|relationship|related|associat|connection between)/)) {
@@ -37,11 +38,16 @@
       if (cats.length >= 2) return out(A.crosstab(ds, cats[0], cats[1]));
       return out(A.correlation(ds));
     }
-    if (has(/\b(why|caus\w*|reason|what happened|explain the (drop|rise|jump|fall|spike|change))\b/) && p.dateCol) {
+    const monthHit = t.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b(?:\.?\s*(\d{4}))?/), timeWhy = has(/\b(drop|dropped|rise|rose|jump|jumped|fall|fell|spike|dip|dipped|increase|increased|decrease|decreased|declin\w*|grew|surge|changed?|happened|went (up|down))\b/) || (monthHit && has(/\b(in|during|for|of)\s+\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/));
+    if (has(/\b(why|reason|caus\w*)\b/) && !timeWhy && nums[0] && p.numeric.length >= 2) {
+      const target = nums[0]; const preds = pickPreds(target);
+      return out(A.regression(ds, target, preds));
+    }
+    if ((has(/\b(why|caus\w*|reason|what happened|what.?s changed|what changed|explain the (drop|rise|jump|fall|spike|change))\b/) || timeWhy) && p.dateCol) {
       const per = A.periods(ds, p.dateCol, grainWord); const MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-      const mm = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(\d{4})?/); const yy = t.match(/\b(20\d\d|19\d\d)\b/);
+      const mm = t.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b(?:\.?\s*(\d{4}))?/); const yy = t.match(/\b(20\d\d|19\d\d)\b/);
       let period = null;
-      if (mm) { const mi = MON.indexOf(mm[1]); const cands = per.filter((x) => new Date(x.ts).getUTCMonth() === mi && (!yy || new Date(x.ts).getUTCFullYear() === +yy[1])); if (cands.length) period = cands[cands.length - 1].ts; }
+      if (mm) { const mi = MON.indexOf(mm[1].slice(0, 3)); const cands = per.filter((x) => new Date(x.ts).getUTCMonth() === mi && (!yy || new Date(x.ts).getUTCFullYear() === +yy[1])); if (cands.length) period = cands[cands.length - 1].ts; }
       return out(A.explainChange(ds, p.dateCol, measure, period, mm ? 'month' : grainWord));
     }
     if (has(/(outlier|unusual|anomal|weird|strange|extreme|suspicious)/)) {
@@ -59,10 +65,10 @@
       const spec = E.chartFromText(ds, question); const w = E.validateChart(ds, spec).filter((x) => x.level === 'error');
       return { engine: 'local', text: w.length ? w[0].msg : `Here is a ${E.CHART_TYPES.find((c) => c.id === spec.type).label.toLowerCase()} chart: ${spec.title}.`, blocks: w.length ? [] : [{ kind: 'chart', title: spec.title, chart: spec, code: E.chartCode(spec), summary: '' }], followups: ['Open this in the chart builder'], plan: ['Map words to chart type and columns', 'Validate the chart', 'Aggregate and draw'] };
     }
-    const top = has(/\b(top|best|highest|most|largest|biggest|leading|max(imum)?)\b/), bottom = has(/\b(bottom|worst|lowest|least|smallest|min(imum)?|weakest)\b/);
+    const top = has(/\b(top|best|highest|most|largest|biggest|leading|slowest|longest|max(imum)?)\b/), bottom = has(/\b(bottom|worst|lowest|least|smallest|fastest|shortest|quickest|min(imum)?|weakest)\b/);
     const aggWord = has(/\b(average|mean|avg|typical)\b/) ? 'mean' : has(/\bmedian\b/) ? 'median' : has(/\b(count|how many|number of)\b/) ? 'count' : has(/\b(total|sum|overall)\b/) ? 'sum' : null;
     if ((top || bottom || has(/\bwhich\b|\bby\b|\bper\b|\beach\b|breakdown|split/)) && (cats[0] || group)) {
-      const g = cats.find((c) => c !== measure) || group; const agg = aggWord === 'count' ? 'count' : aggWord || (measure ? E.defaultAgg(E.col(ds, measure)) : 'count');
+      const g = cats.find((c) => c !== measure) || group; const speedWord = has(/\b(slowest|fastest|longest|shortest|quickest)\b/); const agg = aggWord === 'count' ? 'count' : aggWord || (speedWord && measure ? 'mean' : measure ? E.defaultAgg(E.col(ds, measure)) : 'count');
       const b = A.groupSummary(ds, g, agg === 'count' ? null : measure, agg === 'count' ? undefined : agg);
       const nM = t.match(/(?:top|bottom)\s+(\d+)/); const n = nM ? +nM[1] : 3;
       const rows = b.table.rows.slice().sort((x, y) => (bottom ? x[1] - y[1] : y[1] - x[1])).slice(0, n);

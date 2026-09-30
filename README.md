@@ -54,7 +54,11 @@ With no AI keys the app still works: the AI endpoints return 503 and the browser
 | Code sandbox | E2B / Modal / Daytona | Keep `ENABLE_SANDBOX=0` on the web API; run Pro-mode code only on an isolated host. |
 | Billing | Stripe | Tables `usage` and `subscriptions` are ready; meter credits per `kind`. |
 
-Custom domain: add it in Vercel and point `explainyourdata.com` (or your chosen name) at it.
+### Render (Blueprint)
+
+`render.yaml` defines two free web services: `explain-your-data` (Next.js, served at `https://explain-your-data.onrender.com`) and `eyd-api` (FastAPI). In Render choose New → Blueprint, pick this repo, and set `API_URL=https://eyd-api.onrender.com` on the web service. Add `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` on `eyd-api` to turn on AI answers. Render subdomains are global, so if `explain-your-data` is already taken it will append a suffix.
+
+Custom domain: add it on the web service in Render (Settings → Custom Domains) or in Vercel.
 
 ## Architecture
 

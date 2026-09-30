@@ -202,11 +202,16 @@
   A.clusters = function (ds, cols, k) {
     cols = cols.filter((n) => E.col(ds, n) && E.col(ds, n).type === 'number');
     if (cols.length < 2) return { kind: 'clusters', title: 'Segmentation', summary: 'Choose at least two numeric columns.', error: true };
-    const Z = S.standardize(cols.map((n) => E.col(ds, n)), ds.n);
+    const wz = cols.map((n) => { const v = S.sorted(S.nums(E.col(ds, n).values)); const lo = v[Math.floor(0.01 * (v.length - 1))], hi = v[Math.ceil(0.99 * (v.length - 1))]; return { values: E.col(ds, n).values.map((x) => (isNum(x) ? Math.min(hi, Math.max(lo, x)) : x)) }; }); // winsorise at 1%/99% so one extreme row cannot form its own segment
+    const Z = S.standardize(wz, ds.n);
     if (Z.rows.length < 20) return { kind: 'clusters', title: 'Segmentation', summary: 'Too few complete rows.', error: true };
     let chosen = k, sil = null; const tried = [];
     const sample = Z.rows.length > 5000 ? Z.rows.filter((_, i) => i % Math.ceil(Z.rows.length / 5000) === 0) : Z.rows;
-    if (!k) { for (let kk = 2; kk <= 6; kk++) { const km = S.kmeans(sample, kk); const s = S.silhouette(sample, km.labels, kk); tried.push([kk, s]); if (sil == null || s > sil) { sil = s; chosen = kk; } } }
+    if (!k) {
+      const minSize = Math.max(5, Math.round(0.03 * sample.length));
+      for (let kk = 2; kk <= 6; kk++) { const km = S.kmeans(sample, kk); const cnt = new Array(kk).fill(0); km.labels.forEach((l) => cnt[l]++); if (Math.min(...cnt) < minSize) { tried.push([kk, null]); continue; } const s = S.silhouette(sample, km.labels, kk); tried.push([kk, s]); if (sil == null || s > sil) { sil = s; chosen = kk; } }
+      if (sil == null) return { kind: 'clusters', title: 'Segmentation', summary: `No clear segments: every split into 2–6 groups leaves a group with fewer than ${minSize} rows, which usually means a few unusual rows rather than real customer types. Try different columns or clean outliers first.`, error: true };
+    }
     const km = S.kmeans(Z.rows, chosen); if (sil == null) sil = S.silhouette(Z.rows, km.labels, chosen);
     const pca = S.pca2(Z.rows); const T = E.theme();
     const prof = [...Array(chosen).keys()].map((c) => { const idx = Z.idx.filter((_, i) => km.labels[i] === c); return ['Segment ' + (c + 1), idx.length].concat(cols.map((n) => S.mean(idx.map((i) => E.col(ds, n).values[i])))); });

@@ -2,9 +2,11 @@
 (function () {
   const E = window.EYD, S = E.S, isNum = E.isNum, fmt = E.fmt;
 
+  const NONNEG = /(price|cost|revenue|sales|amount|quantity|qty|count|days|age|hours|duration|weight|height|units|distance|salary|income|spend|total)/i;
+  const NOT_NONNEG = /(change|diff|delta|growth|balance|profit|net|margin|temp|refund|return)/i;
   const MEASURE_HINT = /(revenue|sales|amount|profit|total|price|cost|spend|income|salary|score|yield|value|satisfaction|rating|units|quantity|qty|hours|duration|weight|height|age|count)/i;
   const STRONG_MEASURE = /(revenue|sales|amount|profit|total|spend|income|salary|yield|satisf|score)/i;
-  const NONADDITIVE = /(rating|score|age|price|rate|pct|percent|ph|temperature|temp|satisfaction|avg|mean|hours|sleep|latitude|longitude|year|protein)/i;
+  const NONADDITIVE = /(delivery|duration|latency|wait|lead.?time|speed|response|rating|score|age|price|rate|pct|percent|ph|temperature|temp|satisfaction|avg|mean|hours|sleep|latitude|longitude|year|protein)/i;
   E.short = (s, n = 34) => { s = String(s).replace(/_/g, ' ').replace(/\?$/, ''); if (s.length <= n) return s; const cut = s.slice(0, n); return cut.slice(0, Math.max(cut.lastIndexOf(' '), n - 8)).trim() + '…'; };
   E.isNonAdditive = (c) => {
     if (!c) return false;
@@ -26,7 +28,12 @@
       const uniqSet = new Set(nonNull);
       p.unique = uniqSet.size;
       p.constant = p.unique === 1 && n > 1;
-      if (c.type === 'number') { p.desc = S.describe(c.values); p.hist = S.histogram(c.values, 24); }
+      if (c.type === 'number') {
+        p.desc = S.describe(c.values); p.hist = S.histogram(c.values, 24);
+        p.negatives = c.values.reduce((s, v) => s + (isNum(v) && v < 0 ? 1 : 0), 0);
+        p.nonneg = p.negatives > 0 && NONNEG.test(c.name) && !NOT_NONNEG.test(c.name) && p.negatives / Math.max(1, n) <= 0.05;
+        if (p.nonneg) invalidCells += p.negatives;
+      }
       if (c.type === 'date') { let mn = Infinity, mx = -Infinity; for (const v of nonNull) { if (v < mn) mn = v; if (v > mx) mx = v; } p.min = mn; p.max = mx; p.grain = E.autoGrain(c); p.future = nonNull.filter((v) => v > Date.now() + 864e5 * 2).length; }
       if (c.type === 'category' || c.type === 'text' || c.type === 'id') {
         const counts = new Map(); let ws = 0;
@@ -76,9 +83,19 @@
       else if (p.whitespace) issues.push({ id: 'ws_' + p.name, col: p.name, severity: 'info', title: `Extra spaces in ${p.name}`, detail: `${p.whitespace} values have leading or trailing spaces.`, fix: { op: 'text_clean', params: { col: p.name, fn: 'trim' }, label: 'Trim spaces' } });
       if (p.type === 'number' && p.desc && p.desc.n > 20) {
         const s = S.sorted(S.nums(c.values)); const q1 = p.desc.q1, q3 = p.desc.q3, iqr = q3 - q1;
-        const extreme = iqr > 0 ? s.filter((v) => v < q1 - 3 * iqr || v > q3 + 3 * iqr).length : 0;
-        if (extreme && extreme / n < 0.01) issues.push({ id: 'out_' + p.name, col: p.name, severity: 'info', title: `${extreme} extreme outlier${extreme > 1 ? 's' : ''} in ${p.name}`, detail: `Values beyond 3×IQR from the quartiles (max ${fmt.num(p.desc.max)} vs median ${fmt.num(p.desc.median)}). Check whether they are real before removing.`, fix: { op: 'outliers', params: { col: p.name, method: 'iqr', action: 'cap', k: 3 }, label: 'Cap extreme values' } });
+        let extreme = iqr > 0 ? s.filter((v) => v < q1 - 3 * iqr || v > q3 + 3 * iqr).length : 0, method = 'iqr';
+        if (!(extreme && extreme / n < 0.01) && p.desc.skew > 1 && s[0] > 0) { // skewed positive data: the plain IQR fence flags too many values, so also try the log scale
+          const lg = s.map(Math.log); const ql = (pp) => { const pos = (lg.length - 1) * pp, b = Math.floor(pos); return lg[b] + (lg[Math.min(b + 1, lg.length - 1)] - lg[b]) * (pos - b); };
+          const a = ql(0.25), z = ql(0.75), lo = Math.exp(a - 3 * (z - a)), hi = Math.exp(z + 3 * (z - a));
+          const le = z > a ? s.filter((v) => v < lo || v > hi).length : 0;
+          if (le) { extreme = le; method = 'logiqr'; }
+        }
+        if (extreme && extreme / n < 0.01) {
+          const huge = p.desc.median > 0 && p.desc.max / p.desc.median > 20;
+          issues.push({ id: 'out_' + p.name, col: p.name, severity: huge ? 'warning' : 'info', title: `${extreme} extreme outlier${extreme > 1 ? 's' : ''} in ${p.name}`, detail: `${method === 'logiqr' ? 'Values far outside the typical range even on a log scale' : 'Values beyond 3×IQR from the quartiles'} (max ${fmt.num(p.desc.max)} vs median ${fmt.num(p.desc.median)}). Check whether they are real before removing.`, fix: { op: 'outliers', params: { col: p.name, method, action: 'cap', k: 3 }, label: 'Cap extreme values' } });
+        }
       }
+      if (p.nonneg) issues.push({ id: 'neg_' + p.name, col: p.name, severity: 'warning', title: `${p.negatives} impossible negative value${p.negatives > 1 ? 's' : ''} in ${p.name}`, detail: `${p.name} looks like something that cannot be below zero (lowest ${fmt.num(p.desc.min)}). This is usually a data-entry or system error. They are blanked, not deleted.`, fix: { op: 'negative_to_missing', params: { col: p.name }, label: 'Blank out negatives' } });
       if (p.constant) issues.push({ id: 'const_' + p.name, col: p.name, severity: 'info', title: `${p.name} has one value only`, detail: `Every row is "${p.top ? p.top[0][0] : fmt.num(p.desc && p.desc.min)}".`, fix: { op: 'drop_column', params: { col: p.name }, label: 'Remove column' } });
       if (p.type === 'date' && p.future) issues.push({ id: 'fut_' + p.name, col: p.name, severity: 'info', title: `${p.future} future dates in ${p.name}`, detail: 'Dates after today. Check for typos in the year.', fix: null });
     }
@@ -138,6 +155,9 @@
     const m = p.measure ? E.col(ds, p.measure) : null; const agg = E.defaultAgg(m);
     const mName = m ? nice(m.name) : 'rows';
     const fm = (v) => (m ? fmt.compact(v, m.unit) : fmt.num(v, 0));
+    let dom = null;
+    if (m && agg === 'sum' && p.n >= 30) { let tot = 0, mx = -Infinity; for (const v of m.values) if (isNum(v) && v > 0) { tot += v; if (v > mx) mx = v; } if (tot > 0 && mx / tot > 0.2) dom = { share: mx / tot, value: mx, tot }; }
+    const domNote = dom ? ` Caution: a single row (${fm(dom.value)}) is ${fmt.pct(dom.share, 0)} of all ${mName}, so this mostly reflects that one value.` : '';
 
     // 1. Time trend
     if (p.dateCol) {
@@ -154,7 +174,7 @@
         const change = h1 ? h2 / h1 - 1 : NaN;
         const dir = change >= 0 ? 'grew' : 'fell';
         const label = (i) => fmt.date(rows[i][0], grain);
-        if (!(cor.p > 0.05 && Math.abs(change) < 0.05)) out.push({ id: 'trend', kind: 'Trend', title: `${m ? mName[0].toUpperCase() + mName.slice(1) : 'Volume'} ${dir} ${fmt.pct(Math.abs(change))}`, body: `Comparing the average ${grain} in the second half of the period with the first half. It moved from ${fm(first)} in ${label(0)} to ${fm(last)} in ${label(vals.length - 1)}. The linear trend is ${S.effectLabel('r', cor.r)} (r = ${cor.r.toFixed(2)}, ${fmt.p(cor.p)}).`, confidence: conf(cor.p, vals.length), score: 90 + Math.min(10, Math.abs(change) * 20), chart: { type: 'line', x: p.dateCol, y: m && m.name, agg, grain, trendline: true, title: `${m ? E.AGG_LABEL[agg] + ' ' + mName : 'Rows'} by ${grain}` }, code: E.aggCode({ by: [p.dateCol], metrics: m ? [{ col: m.name, agg }] : [], timeGrain: grain }), evidence: [`Grouped ${p.n.toLocaleString()} rows by ${grain} of ${p.dateCol}`, `${E.AGG_LABEL[agg] || 'Count'} of ${mName} per ${grain}`, `Mean of last ${half} ${grain}s ÷ mean of first ${half} − 1 = ${fmt.signedPct(change)}`] });
+        if (!(cor.p > 0.05 && Math.abs(change) < 0.05)) out.push({ id: 'trend', kind: 'Trend', title: cor.p > 0.05 ? `${m ? mName[0].toUpperCase() + mName.slice(1) : 'Volume'} is ${change >= 0 ? 'higher' : 'lower'} in the second half (${fmt.pct(Math.abs(change))}), but no clear trend` : `${m ? mName[0].toUpperCase() + mName.slice(1) : 'Volume'} ${dir} ${fmt.pct(Math.abs(change))}`, body: `Comparing the average ${grain} in the second half of the period with the first half. It moved from ${fm(first)} in ${label(0)} to ${fm(last)} in ${label(vals.length - 1)}. The linear trend is ${S.effectLabel('r', cor.r)} (r = ${cor.r.toFixed(2)}, ${fmt.p(cor.p)}).`, confidence: conf(cor.p, vals.length), score: (cor.p > 0.05 ? 55 : 90) + Math.min(10, Math.abs(change) * 20), chart: { type: 'line', x: p.dateCol, y: m && m.name, agg, grain, trendline: true, title: `${m ? E.AGG_LABEL[agg] + ' ' + mName : 'Rows'} by ${grain}` }, code: E.aggCode({ by: [p.dateCol], metrics: m ? [{ col: m.name, agg }] : [], timeGrain: grain }), evidence: [`Grouped ${p.n.toLocaleString()} rows by ${grain} of ${p.dateCol}`, `${E.AGG_LABEL[agg] || 'Count'} of ${mName} per ${grain}`, `Mean of last ${half} ${grain}s ÷ mean of first ${half} − 1 = ${fmt.signedPct(change)}`] });
         // biggest period jump
         let best = { i: -1, ch: 0 };
         for (let i = 1; i < vals.length; i++) { if (!vals[i - 1]) continue; const ch = vals[i] / vals[i - 1] - 1; if (Math.abs(ch) > Math.abs(best.ch)) best = { i, ch }; }
@@ -247,6 +267,10 @@
       out.push({ id: 'quality', kind: 'Quality', title: `${p.issues.length} data quality issue${p.issues.length === 1 ? '' : 's'} to review`, body: `Health score ${p.health.score}/100. Most important: ${top.join('; ')}. Fixing these first makes every other result more reliable.`, confidence: 'High', score: p.health.score < 85 ? 75 : 40, chart: null, action: 'clean', code: { py: 'df.isna().sum()\ndf.duplicated().sum()', r: 'colSums(is.na(df))\nsum(duplicated(df))' }, evidence: p.issues.slice(0, 5).map((i) => i.title) });
     }
 
+    if (dom) {
+      out.forEach((i) => { if (['trend', 'spike', 'streak'].includes(i.id) || /^(share_|anova_)/.test(i.id)) { i.body += domNote; i.confidence = 'Low'; i.score -= 30; } });
+      out.push({ id: 'dominant', kind: 'Anomaly', title: `One row makes up ${fmt.pct(dom.share, 0)} of all ${mName}`, body: `The largest single value (${fm(dom.value)}) is ${fmt.pct(dom.share, 0)} of the ${fm(dom.tot)} total. Totals, trends and segment shares are dominated by it. Check whether it is real or a data-entry error before trusting them.`, confidence: 'High', score: 96, chart: { type: 'histogram', x: m.name, title: `Distribution of ${mName}` }, action: 'clean', code: { py: `df.nlargest(5, ${E.pyStr(m.name)})`, r: `df %>% arrange(desc(${E.rName(m.name)})) %>% head(5)` }, evidence: [`Largest value ${fm(dom.value)} ÷ total ${fm(dom.tot)} = ${fmt.pct(dom.share)}`] });
+    }
     out.sort((a, b) => b.score - a.score);
     out.forEach((o, i) => (o.rank = i + 1));
     ds._insights = { rev: ds.rev, list: out };

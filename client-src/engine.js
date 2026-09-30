@@ -423,21 +423,27 @@
       if (p.method === 'zscore') {
         const m = nums.reduce((a, b) => a + b, 0) / nums.length; const sd = Math.sqrt(nums.reduce((a, b) => a + (b - m) ** 2, 0) / (nums.length - 1));
         const k = p.k || 3; lo = m - k * sd; hi = m + k * sd;
+      } else if (p.method === 'logiqr') {
+        const lg = nums.filter((v) => v > 0).map(Math.log);
+        const ql = (pp) => { const pos = (lg.length - 1) * pp, b = Math.floor(pos); return lg[b] + (lg[Math.min(b + 1, lg.length - 1)] - lg[b]) * (pos - b); };
+        const a = ql(0.25), z = ql(0.75), k = p.k || 3; lo = Math.exp(a - k * (z - a)); hi = Math.exp(z + k * (z - a));
       } else {
         const q = (pp) => { const pos = (nums.length - 1) * pp, b = Math.floor(pos); return nums[b] + (nums[Math.min(b + 1, nums.length - 1)] - nums[b]) * (pos - b); };
         const q1 = q(0.25), q3 = q(0.75), iqr = q3 - q1, k = p.k || 1.5; lo = q1 - k * iqr; hi = q3 + k * iqr;
       }
+      if (nums.length && nums[0] >= 0 && lo < nums[0]) lo = nums[0]; // non-negative measures never get a negative bound
+      const mname = p.method === 'zscore' ? 'z-score' : p.method === 'logiqr' ? 'log-IQR' : 'IQR';
       let count = 0;
       const col = E.pyStr(p.col), rc = E.rName(p.col);
-      const bounds = p.method === 'zscore' ? `m, s = df[${col}].mean(), df[${col}].std()\nlo, hi = m - ${p.k || 3}*s, m + ${p.k || 3}*s` : `q1, q3 = df[${col}].quantile([.25, .75])\nlo, hi = q1 - ${p.k || 1.5}*(q3-q1), q3 + ${p.k || 1.5}*(q3-q1)`;
-      const rb = p.method === 'zscore' ? `lo <- mean(df$${rc}, na.rm=TRUE) - ${p.k || 3}*sd(df$${rc}, na.rm=TRUE); hi <- mean(df$${rc}, na.rm=TRUE) + ${p.k || 3}*sd(df$${rc}, na.rm=TRUE)` : `q <- quantile(df$${rc}, c(.25,.75), na.rm=TRUE); lo <- q[1] - ${p.k || 1.5}*diff(q); hi <- q[2] + ${p.k || 1.5}*diff(q)`;
+      const bounds = p.method === 'logiqr' ? `lg = np.log(df[${col}].where(df[${col}] > 0))\nq1, q3 = lg.quantile([.25, .75])\nlo, hi = np.exp(q1 - ${p.k || 3}*(q3-q1)), np.exp(q3 + ${p.k || 3}*(q3-q1))` : p.method === 'zscore' ? `m, s = df[${col}].mean(), df[${col}].std()\nlo, hi = m - ${p.k || 3}*s, m + ${p.k || 3}*s` : `q1, q3 = df[${col}].quantile([.25, .75])\nlo, hi = q1 - ${p.k || 1.5}*(q3-q1), q3 + ${p.k || 1.5}*(q3-q1)`;
+      const rb = p.method === 'logiqr' ? `lg <- log(ifelse(df$${rc} > 0, df$${rc}, NA)); q <- quantile(lg, c(.25,.75), na.rm=TRUE); lo <- exp(q[1] - ${p.k || 3}*diff(q)); hi <- exp(q[2] + ${p.k || 3}*diff(q))` : p.method === 'zscore' ? `lo <- mean(df$${rc}, na.rm=TRUE) - ${p.k || 3}*sd(df$${rc}, na.rm=TRUE); hi <- mean(df$${rc}, na.rm=TRUE) + ${p.k || 3}*sd(df$${rc}, na.rm=TRUE)` : `q <- quantile(df$${rc}, c(.25,.75), na.rm=TRUE); lo <- q[1] - ${p.k || 1.5}*diff(q); hi <- q[2] + ${p.k || 1.5}*diff(q)`;
       if (p.action === 'cap') {
         c.values = c.values.map((v) => { if (!E.isNum(v)) return v; if (v < lo) { count++; return lo; } if (v > hi) { count++; return hi; } return v; });
-        return { label: `Capped ${count} outliers in ${p.col} to [${E.fmt.num(lo)}, ${E.fmt.num(hi)}] (${p.method === 'zscore' ? 'z-score' : 'IQR'})`, py: `${bounds}\ndf[${col}] = df[${col}].clip(lo, hi)`, r: `${rb}\ndf <- df %>% mutate(${rc} = pmin(pmax(${rc}, lo), hi))` };
+        return { label: `Capped ${count} outliers in ${p.col} to [${E.fmt.num(lo)}, ${E.fmt.num(hi)}] (${mname})`, py: `${bounds}\ndf[${col}] = df[${col}].clip(lo, hi)`, r: `${rb}\ndf <- df %>% mutate(${rc} = pmin(pmax(${rc}, lo), hi))` };
       }
       const mask = c.values.map((v) => { const out = E.isNum(v) && (v < lo || v > hi); if (out) count++; return !out; });
       E.keepRows(ds, mask);
-      return { label: `Removed ${count} outlier rows in ${p.col} (${p.method === 'zscore' ? 'z-score' : 'IQR'})`, py: `${bounds}\ndf = df[df[${col}].between(lo, hi) | df[${col}].isna()]`, r: `${rb}\ndf <- df %>% filter(is.na(${rc}) | between(${rc}, lo, hi))` };
+      return { label: `Removed ${count} outlier rows in ${p.col} (${mname})`, py: `${bounds}\ndf = df[df[${col}].between(lo, hi) | df[${col}].isna()]`, r: `${rb}\ndf <- df %>% filter(is.na(${rc}) | between(${rc}, lo, hi))` };
     },
     extract_date(ds, p) {
       const c = E.col(ds, p.col); if (!c || c.type !== 'date') throw new Error('Pick a date column');
@@ -508,6 +514,12 @@
       c.values = c.values.map((v) => (String(v) === String(p.from) ? (k++, c.type === 'number' ? E.parseNum(p.to) : p.to) : v));
       if (c.order) c.order = c.order.map((o) => (o === p.from ? p.to : o));
       return { label: `Replaced "${p.from}" with "${p.to}" in ${p.col} (${k} values)`, py: `df[${E.pyStr(p.col)}] = df[${E.pyStr(p.col)}].replace(${E.pyStr(p.from)}, ${E.pyStr(p.to)})`, r: `df <- df %>% mutate(${E.rName(p.col)} = replace(${E.rName(p.col)}, ${E.rName(p.col)} == ${JSON.stringify(p.from)}, ${JSON.stringify(p.to)}))` };
+    },
+    negative_to_missing(ds, p) {
+      const c = E.col(ds, p.col); if (!c) throw new Error('Column not found');
+      let k = 0;
+      c.values = c.values.map((v) => (E.isNum(v) && v < 0 ? (k++, null) : v));
+      return { label: `Blanked ${k} impossible negative value${k === 1 ? '' : 's'} in ${p.col}`, py: `df.loc[df[${E.pyStr(p.col)}] < 0, ${E.pyStr(p.col)}] = np.nan`, r: `df <- df %>% mutate(${E.rName(p.col)} = ifelse(${E.rName(p.col)} < 0, NA, ${E.rName(p.col)}))` };
     },
     likert_score(ds, p) {
       const c = E.col(ds, p.col); if (!c || !c.order) throw new Error('Pick an ordered (Likert) column');

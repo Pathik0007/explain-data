@@ -840,21 +840,27 @@ details.more > div { margin-top: 10px; }
       if (p.method === 'zscore') {
         const m = nums.reduce((a, b) => a + b, 0) / nums.length; const sd = Math.sqrt(nums.reduce((a, b) => a + (b - m) ** 2, 0) / (nums.length - 1));
         const k = p.k || 3; lo = m - k * sd; hi = m + k * sd;
+      } else if (p.method === 'logiqr') {
+        const lg = nums.filter((v) => v > 0).map(Math.log);
+        const ql = (pp) => { const pos = (lg.length - 1) * pp, b = Math.floor(pos); return lg[b] + (lg[Math.min(b + 1, lg.length - 1)] - lg[b]) * (pos - b); };
+        const a = ql(0.25), z = ql(0.75), k = p.k || 3; lo = Math.exp(a - k * (z - a)); hi = Math.exp(z + k * (z - a));
       } else {
         const q = (pp) => { const pos = (nums.length - 1) * pp, b = Math.floor(pos); return nums[b] + (nums[Math.min(b + 1, nums.length - 1)] - nums[b]) * (pos - b); };
         const q1 = q(0.25), q3 = q(0.75), iqr = q3 - q1, k = p.k || 1.5; lo = q1 - k * iqr; hi = q3 + k * iqr;
       }
+      if (nums.length && nums[0] >= 0 && lo < nums[0]) lo = nums[0]; // non-negative measures never get a negative bound
+      const mname = p.method === 'zscore' ? 'z-score' : p.method === 'logiqr' ? 'log-IQR' : 'IQR';
       let count = 0;
       const col = E.pyStr(p.col), rc = E.rName(p.col);
-      const bounds = p.method === 'zscore' ? `m, s = df[${col}].mean(), df[${col}].std()\nlo, hi = m - ${p.k || 3}*s, m + ${p.k || 3}*s` : `q1, q3 = df[${col}].quantile([.25, .75])\nlo, hi = q1 - ${p.k || 1.5}*(q3-q1), q3 + ${p.k || 1.5}*(q3-q1)`;
-      const rb = p.method === 'zscore' ? `lo <- mean(df$${rc}, na.rm=TRUE) - ${p.k || 3}*sd(df$${rc}, na.rm=TRUE); hi <- mean(df$${rc}, na.rm=TRUE) + ${p.k || 3}*sd(df$${rc}, na.rm=TRUE)` : `q <- quantile(df$${rc}, c(.25,.75), na.rm=TRUE); lo <- q[1] - ${p.k || 1.5}*diff(q); hi <- q[2] + ${p.k || 1.5}*diff(q)`;
+      const bounds = p.method === 'logiqr' ? `lg = np.log(df[${col}].where(df[${col}] > 0))\nq1, q3 = lg.quantile([.25, .75])\nlo, hi = np.exp(q1 - ${p.k || 3}*(q3-q1)), np.exp(q3 + ${p.k || 3}*(q3-q1))` : p.method === 'zscore' ? `m, s = df[${col}].mean(), df[${col}].std()\nlo, hi = m - ${p.k || 3}*s, m + ${p.k || 3}*s` : `q1, q3 = df[${col}].quantile([.25, .75])\nlo, hi = q1 - ${p.k || 1.5}*(q3-q1), q3 + ${p.k || 1.5}*(q3-q1)`;
+      const rb = p.method === 'logiqr' ? `lg <- log(ifelse(df$${rc} > 0, df$${rc}, NA)); q <- quantile(lg, c(.25,.75), na.rm=TRUE); lo <- exp(q[1] - ${p.k || 3}*diff(q)); hi <- exp(q[2] + ${p.k || 3}*diff(q))` : p.method === 'zscore' ? `lo <- mean(df$${rc}, na.rm=TRUE) - ${p.k || 3}*sd(df$${rc}, na.rm=TRUE); hi <- mean(df$${rc}, na.rm=TRUE) + ${p.k || 3}*sd(df$${rc}, na.rm=TRUE)` : `q <- quantile(df$${rc}, c(.25,.75), na.rm=TRUE); lo <- q[1] - ${p.k || 1.5}*diff(q); hi <- q[2] + ${p.k || 1.5}*diff(q)`;
       if (p.action === 'cap') {
         c.values = c.values.map((v) => { if (!E.isNum(v)) return v; if (v < lo) { count++; return lo; } if (v > hi) { count++; return hi; } return v; });
-        return { label: `Capped ${count} outliers in ${p.col} to [${E.fmt.num(lo)}, ${E.fmt.num(hi)}] (${p.method === 'zscore' ? 'z-score' : 'IQR'})`, py: `${bounds}\ndf[${col}] = df[${col}].clip(lo, hi)`, r: `${rb}\ndf <- df %>% mutate(${rc} = pmin(pmax(${rc}, lo), hi))` };
+        return { label: `Capped ${count} outliers in ${p.col} to [${E.fmt.num(lo)}, ${E.fmt.num(hi)}] (${mname})`, py: `${bounds}\ndf[${col}] = df[${col}].clip(lo, hi)`, r: `${rb}\ndf <- df %>% mutate(${rc} = pmin(pmax(${rc}, lo), hi))` };
       }
       const mask = c.values.map((v) => { const out = E.isNum(v) && (v < lo || v > hi); if (out) count++; return !out; });
       E.keepRows(ds, mask);
-      return { label: `Removed ${count} outlier rows in ${p.col} (${p.method === 'zscore' ? 'z-score' : 'IQR'})`, py: `${bounds}\ndf = df[df[${col}].between(lo, hi) | df[${col}].isna()]`, r: `${rb}\ndf <- df %>% filter(is.na(${rc}) | between(${rc}, lo, hi))` };
+      return { label: `Removed ${count} outlier rows in ${p.col} (${mname})`, py: `${bounds}\ndf = df[df[${col}].between(lo, hi) | df[${col}].isna()]`, r: `${rb}\ndf <- df %>% filter(is.na(${rc}) | between(${rc}, lo, hi))` };
     },
     extract_date(ds, p) {
       const c = E.col(ds, p.col); if (!c || c.type !== 'date') throw new Error('Pick a date column');
@@ -925,6 +931,12 @@ details.more > div { margin-top: 10px; }
       c.values = c.values.map((v) => (String(v) === String(p.from) ? (k++, c.type === 'number' ? E.parseNum(p.to) : p.to) : v));
       if (c.order) c.order = c.order.map((o) => (o === p.from ? p.to : o));
       return { label: `Replaced "${p.from}" with "${p.to}" in ${p.col} (${k} values)`, py: `df[${E.pyStr(p.col)}] = df[${E.pyStr(p.col)}].replace(${E.pyStr(p.from)}, ${E.pyStr(p.to)})`, r: `df <- df %>% mutate(${E.rName(p.col)} = replace(${E.rName(p.col)}, ${E.rName(p.col)} == ${JSON.stringify(p.from)}, ${JSON.stringify(p.to)}))` };
+    },
+    negative_to_missing(ds, p) {
+      const c = E.col(ds, p.col); if (!c) throw new Error('Column not found');
+      let k = 0;
+      c.values = c.values.map((v) => (E.isNum(v) && v < 0 ? (k++, null) : v));
+      return { label: `Blanked ${k} impossible negative value${k === 1 ? '' : 's'} in ${p.col}`, py: `df.loc[df[${E.pyStr(p.col)}] < 0, ${E.pyStr(p.col)}] = np.nan`, r: `df <- df %>% mutate(${E.rName(p.col)} = ifelse(${E.rName(p.col)} < 0, NA, ${E.rName(p.col)}))` };
     },
     likert_score(ds, p) {
       const c = E.col(ds, p.col); if (!c || !c.order) throw new Error('Pick an ordered (Likert) column');
@@ -1408,9 +1420,12 @@ details.more > div { margin-top: 10px; }
   S.forecast = function (y, h, season) {
     const { scored, hold } = fitBest(y, h, season);
     const best = scored[0]; const r = best.run(y, h);
-    const res = r.fit.map((f, i) => y[i] - f).slice(Math.min(season || 1, y.length - 2));
-    const sigma = S.std(res) || S.std(y) * 0.1; const z80 = 1.2816, z95 = 1.96;
-    return { method: best.name, params: r.params, holdout: hold, comparison: scored.map((c) => ({ name: c.name, rmse: c.rmse, mape: c.mape })), fitted: r.fit, forecast: r.fc.map((v, k) => ({ yhat: v, lo80: v - z80 * sigma * Math.sqrt(k + 1), hi80: v + z80 * sigma * Math.sqrt(k + 1), lo95: v - z95 * sigma * Math.sqrt(k + 1), hi95: v + z95 * sigma * Math.sqrt(k + 1) })), sigma };
+    const burn = best.name.startsWith('Holt-Winters') ? Math.min(season || 1, y.length - 3) : 1; // seasonal fit copies the first season, others need one step to start
+    const res = r.fit.map((f, i) => y[i] - f).slice(burn);
+    const rms = res.length ? Math.sqrt(S.mean(res.map((e) => e * e))) : 0;
+    const sigma = Math.max(rms, isFinite(best.rmse) ? best.rmse : 0) || S.std(y) * 0.1; // never narrower than the out-of-sample error
+    const z80 = 1.2816, z95 = 1.96;
+    return { method: best.name, params: r.params, holdout: hold, comparison: scored.map((c) => ({ name: c.name, rmse: c.rmse, mape: c.mape })), fitted: r.fit, forecast: r.fc.map((v, k) => { const fl = y.every((q) => q >= 0) ? (x) => Math.max(0, x) : (x) => x; return { yhat: v, lo80: fl(v - z80 * sigma * Math.sqrt(k + 1)), hi80: v + z80 * sigma * Math.sqrt(k + 1), lo95: fl(v - z95 * sigma * Math.sqrt(k + 1)), hi95: v + z95 * sigma * Math.sqrt(k + 1) }; }), sigma };
   };
 
   /* ---------- survey reliability ---------- */
@@ -1437,9 +1452,11 @@ details.more > div { margin-top: 10px; }
 (function () {
   const E = window.EYD, S = E.S, isNum = E.isNum, fmt = E.fmt;
 
+  const NONNEG = /(price|cost|revenue|sales|amount|quantity|qty|count|days|age|hours|duration|weight|height|units|distance|salary|income|spend|total)/i;
+  const NOT_NONNEG = /(change|diff|delta|growth|balance|profit|net|margin|temp|refund|return)/i;
   const MEASURE_HINT = /(revenue|sales|amount|profit|total|price|cost|spend|income|salary|score|yield|value|satisfaction|rating|units|quantity|qty|hours|duration|weight|height|age|count)/i;
   const STRONG_MEASURE = /(revenue|sales|amount|profit|total|spend|income|salary|yield|satisf|score)/i;
-  const NONADDITIVE = /(rating|score|age|price|rate|pct|percent|ph|temperature|temp|satisfaction|avg|mean|hours|sleep|latitude|longitude|year|protein)/i;
+  const NONADDITIVE = /(delivery|duration|latency|wait|lead.?time|speed|response|rating|score|age|price|rate|pct|percent|ph|temperature|temp|satisfaction|avg|mean|hours|sleep|latitude|longitude|year|protein)/i;
   E.short = (s, n = 34) => { s = String(s).replace(/_/g, ' ').replace(/\?$/, ''); if (s.length <= n) return s; const cut = s.slice(0, n); return cut.slice(0, Math.max(cut.lastIndexOf(' '), n - 8)).trim() + '…'; };
   E.isNonAdditive = (c) => {
     if (!c) return false;
@@ -1461,7 +1478,12 @@ details.more > div { margin-top: 10px; }
       const uniqSet = new Set(nonNull);
       p.unique = uniqSet.size;
       p.constant = p.unique === 1 && n > 1;
-      if (c.type === 'number') { p.desc = S.describe(c.values); p.hist = S.histogram(c.values, 24); }
+      if (c.type === 'number') {
+        p.desc = S.describe(c.values); p.hist = S.histogram(c.values, 24);
+        p.negatives = c.values.reduce((s, v) => s + (isNum(v) && v < 0 ? 1 : 0), 0);
+        p.nonneg = p.negatives > 0 && NONNEG.test(c.name) && !NOT_NONNEG.test(c.name) && p.negatives / Math.max(1, n) <= 0.05;
+        if (p.nonneg) invalidCells += p.negatives;
+      }
       if (c.type === 'date') { let mn = Infinity, mx = -Infinity; for (const v of nonNull) { if (v < mn) mn = v; if (v > mx) mx = v; } p.min = mn; p.max = mx; p.grain = E.autoGrain(c); p.future = nonNull.filter((v) => v > Date.now() + 864e5 * 2).length; }
       if (c.type === 'category' || c.type === 'text' || c.type === 'id') {
         const counts = new Map(); let ws = 0;
@@ -1511,9 +1533,19 @@ details.more > div { margin-top: 10px; }
       else if (p.whitespace) issues.push({ id: 'ws_' + p.name, col: p.name, severity: 'info', title: `Extra spaces in ${p.name}`, detail: `${p.whitespace} values have leading or trailing spaces.`, fix: { op: 'text_clean', params: { col: p.name, fn: 'trim' }, label: 'Trim spaces' } });
       if (p.type === 'number' && p.desc && p.desc.n > 20) {
         const s = S.sorted(S.nums(c.values)); const q1 = p.desc.q1, q3 = p.desc.q3, iqr = q3 - q1;
-        const extreme = iqr > 0 ? s.filter((v) => v < q1 - 3 * iqr || v > q3 + 3 * iqr).length : 0;
-        if (extreme && extreme / n < 0.01) issues.push({ id: 'out_' + p.name, col: p.name, severity: 'info', title: `${extreme} extreme outlier${extreme > 1 ? 's' : ''} in ${p.name}`, detail: `Values beyond 3×IQR from the quartiles (max ${fmt.num(p.desc.max)} vs median ${fmt.num(p.desc.median)}). Check whether they are real before removing.`, fix: { op: 'outliers', params: { col: p.name, method: 'iqr', action: 'cap', k: 3 }, label: 'Cap extreme values' } });
+        let extreme = iqr > 0 ? s.filter((v) => v < q1 - 3 * iqr || v > q3 + 3 * iqr).length : 0, method = 'iqr';
+        if (!(extreme && extreme / n < 0.01) && p.desc.skew > 1 && s[0] > 0) { // skewed positive data: the plain IQR fence flags too many values, so also try the log scale
+          const lg = s.map(Math.log); const ql = (pp) => { const pos = (lg.length - 1) * pp, b = Math.floor(pos); return lg[b] + (lg[Math.min(b + 1, lg.length - 1)] - lg[b]) * (pos - b); };
+          const a = ql(0.25), z = ql(0.75), lo = Math.exp(a - 3 * (z - a)), hi = Math.exp(z + 3 * (z - a));
+          const le = z > a ? s.filter((v) => v < lo || v > hi).length : 0;
+          if (le) { extreme = le; method = 'logiqr'; }
+        }
+        if (extreme && extreme / n < 0.01) {
+          const huge = p.desc.median > 0 && p.desc.max / p.desc.median > 20;
+          issues.push({ id: 'out_' + p.name, col: p.name, severity: huge ? 'warning' : 'info', title: `${extreme} extreme outlier${extreme > 1 ? 's' : ''} in ${p.name}`, detail: `${method === 'logiqr' ? 'Values far outside the typical range even on a log scale' : 'Values beyond 3×IQR from the quartiles'} (max ${fmt.num(p.desc.max)} vs median ${fmt.num(p.desc.median)}). Check whether they are real before removing.`, fix: { op: 'outliers', params: { col: p.name, method, action: 'cap', k: 3 }, label: 'Cap extreme values' } });
+        }
       }
+      if (p.nonneg) issues.push({ id: 'neg_' + p.name, col: p.name, severity: 'warning', title: `${p.negatives} impossible negative value${p.negatives > 1 ? 's' : ''} in ${p.name}`, detail: `${p.name} looks like something that cannot be below zero (lowest ${fmt.num(p.desc.min)}). This is usually a data-entry or system error. They are blanked, not deleted.`, fix: { op: 'negative_to_missing', params: { col: p.name }, label: 'Blank out negatives' } });
       if (p.constant) issues.push({ id: 'const_' + p.name, col: p.name, severity: 'info', title: `${p.name} has one value only`, detail: `Every row is "${p.top ? p.top[0][0] : fmt.num(p.desc && p.desc.min)}".`, fix: { op: 'drop_column', params: { col: p.name }, label: 'Remove column' } });
       if (p.type === 'date' && p.future) issues.push({ id: 'fut_' + p.name, col: p.name, severity: 'info', title: `${p.future} future dates in ${p.name}`, detail: 'Dates after today. Check for typos in the year.', fix: null });
     }
@@ -1573,6 +1605,9 @@ details.more > div { margin-top: 10px; }
     const m = p.measure ? E.col(ds, p.measure) : null; const agg = E.defaultAgg(m);
     const mName = m ? nice(m.name) : 'rows';
     const fm = (v) => (m ? fmt.compact(v, m.unit) : fmt.num(v, 0));
+    let dom = null;
+    if (m && agg === 'sum' && p.n >= 30) { let tot = 0, mx = -Infinity; for (const v of m.values) if (isNum(v) && v > 0) { tot += v; if (v > mx) mx = v; } if (tot > 0 && mx / tot > 0.2) dom = { share: mx / tot, value: mx, tot }; }
+    const domNote = dom ? ` Caution: a single row (${fm(dom.value)}) is ${fmt.pct(dom.share, 0)} of all ${mName}, so this mostly reflects that one value.` : '';
 
     // 1. Time trend
     if (p.dateCol) {
@@ -1589,7 +1624,7 @@ details.more > div { margin-top: 10px; }
         const change = h1 ? h2 / h1 - 1 : NaN;
         const dir = change >= 0 ? 'grew' : 'fell';
         const label = (i) => fmt.date(rows[i][0], grain);
-        if (!(cor.p > 0.05 && Math.abs(change) < 0.05)) out.push({ id: 'trend', kind: 'Trend', title: `${m ? mName[0].toUpperCase() + mName.slice(1) : 'Volume'} ${dir} ${fmt.pct(Math.abs(change))}`, body: `Comparing the average ${grain} in the second half of the period with the first half. It moved from ${fm(first)} in ${label(0)} to ${fm(last)} in ${label(vals.length - 1)}. The linear trend is ${S.effectLabel('r', cor.r)} (r = ${cor.r.toFixed(2)}, ${fmt.p(cor.p)}).`, confidence: conf(cor.p, vals.length), score: 90 + Math.min(10, Math.abs(change) * 20), chart: { type: 'line', x: p.dateCol, y: m && m.name, agg, grain, trendline: true, title: `${m ? E.AGG_LABEL[agg] + ' ' + mName : 'Rows'} by ${grain}` }, code: E.aggCode({ by: [p.dateCol], metrics: m ? [{ col: m.name, agg }] : [], timeGrain: grain }), evidence: [`Grouped ${p.n.toLocaleString()} rows by ${grain} of ${p.dateCol}`, `${E.AGG_LABEL[agg] || 'Count'} of ${mName} per ${grain}`, `Mean of last ${half} ${grain}s ÷ mean of first ${half} − 1 = ${fmt.signedPct(change)}`] });
+        if (!(cor.p > 0.05 && Math.abs(change) < 0.05)) out.push({ id: 'trend', kind: 'Trend', title: cor.p > 0.05 ? `${m ? mName[0].toUpperCase() + mName.slice(1) : 'Volume'} is ${change >= 0 ? 'higher' : 'lower'} in the second half (${fmt.pct(Math.abs(change))}), but no clear trend` : `${m ? mName[0].toUpperCase() + mName.slice(1) : 'Volume'} ${dir} ${fmt.pct(Math.abs(change))}`, body: `Comparing the average ${grain} in the second half of the period with the first half. It moved from ${fm(first)} in ${label(0)} to ${fm(last)} in ${label(vals.length - 1)}. The linear trend is ${S.effectLabel('r', cor.r)} (r = ${cor.r.toFixed(2)}, ${fmt.p(cor.p)}).`, confidence: conf(cor.p, vals.length), score: (cor.p > 0.05 ? 55 : 90) + Math.min(10, Math.abs(change) * 20), chart: { type: 'line', x: p.dateCol, y: m && m.name, agg, grain, trendline: true, title: `${m ? E.AGG_LABEL[agg] + ' ' + mName : 'Rows'} by ${grain}` }, code: E.aggCode({ by: [p.dateCol], metrics: m ? [{ col: m.name, agg }] : [], timeGrain: grain }), evidence: [`Grouped ${p.n.toLocaleString()} rows by ${grain} of ${p.dateCol}`, `${E.AGG_LABEL[agg] || 'Count'} of ${mName} per ${grain}`, `Mean of last ${half} ${grain}s ÷ mean of first ${half} − 1 = ${fmt.signedPct(change)}`] });
         // biggest period jump
         let best = { i: -1, ch: 0 };
         for (let i = 1; i < vals.length; i++) { if (!vals[i - 1]) continue; const ch = vals[i] / vals[i - 1] - 1; if (Math.abs(ch) > Math.abs(best.ch)) best = { i, ch }; }
@@ -1682,6 +1717,10 @@ details.more > div { margin-top: 10px; }
       out.push({ id: 'quality', kind: 'Quality', title: `${p.issues.length} data quality issue${p.issues.length === 1 ? '' : 's'} to review`, body: `Health score ${p.health.score}/100. Most important: ${top.join('; ')}. Fixing these first makes every other result more reliable.`, confidence: 'High', score: p.health.score < 85 ? 75 : 40, chart: null, action: 'clean', code: { py: 'df.isna().sum()\ndf.duplicated().sum()', r: 'colSums(is.na(df))\nsum(duplicated(df))' }, evidence: p.issues.slice(0, 5).map((i) => i.title) });
     }
 
+    if (dom) {
+      out.forEach((i) => { if (['trend', 'spike', 'streak'].includes(i.id) || /^(share_|anova_)/.test(i.id)) { i.body += domNote; i.confidence = 'Low'; i.score -= 30; } });
+      out.push({ id: 'dominant', kind: 'Anomaly', title: `One row makes up ${fmt.pct(dom.share, 0)} of all ${mName}`, body: `The largest single value (${fm(dom.value)}) is ${fmt.pct(dom.share, 0)} of the ${fm(dom.tot)} total. Totals, trends and segment shares are dominated by it. Check whether it is real or a data-entry error before trusting them.`, confidence: 'High', score: 96, chart: { type: 'histogram', x: m.name, title: `Distribution of ${mName}` }, action: 'clean', code: { py: `df.nlargest(5, ${E.pyStr(m.name)})`, r: `df %>% arrange(desc(${E.rName(m.name)})) %>% head(5)` }, evidence: [`Largest value ${fm(dom.value)} ÷ total ${fm(dom.tot)} = ${fmt.pct(dom.share)}`] });
+    }
     out.sort((a, b) => b.score - a.score);
     out.forEach((o, i) => (o.rank = i + 1));
     ds._insights = { rev: ds.rev, list: out };
@@ -2650,11 +2689,16 @@ details.more > div { margin-top: 10px; }
   A.clusters = function (ds, cols, k) {
     cols = cols.filter((n) => E.col(ds, n) && E.col(ds, n).type === 'number');
     if (cols.length < 2) return { kind: 'clusters', title: 'Segmentation', summary: 'Choose at least two numeric columns.', error: true };
-    const Z = S.standardize(cols.map((n) => E.col(ds, n)), ds.n);
+    const wz = cols.map((n) => { const v = S.sorted(S.nums(E.col(ds, n).values)); const lo = v[Math.floor(0.01 * (v.length - 1))], hi = v[Math.ceil(0.99 * (v.length - 1))]; return { values: E.col(ds, n).values.map((x) => (isNum(x) ? Math.min(hi, Math.max(lo, x)) : x)) }; }); // winsorise at 1%/99% so one extreme row cannot form its own segment
+    const Z = S.standardize(wz, ds.n);
     if (Z.rows.length < 20) return { kind: 'clusters', title: 'Segmentation', summary: 'Too few complete rows.', error: true };
     let chosen = k, sil = null; const tried = [];
     const sample = Z.rows.length > 5000 ? Z.rows.filter((_, i) => i % Math.ceil(Z.rows.length / 5000) === 0) : Z.rows;
-    if (!k) { for (let kk = 2; kk <= 6; kk++) { const km = S.kmeans(sample, kk); const s = S.silhouette(sample, km.labels, kk); tried.push([kk, s]); if (sil == null || s > sil) { sil = s; chosen = kk; } } }
+    if (!k) {
+      const minSize = Math.max(5, Math.round(0.03 * sample.length));
+      for (let kk = 2; kk <= 6; kk++) { const km = S.kmeans(sample, kk); const cnt = new Array(kk).fill(0); km.labels.forEach((l) => cnt[l]++); if (Math.min(...cnt) < minSize) { tried.push([kk, null]); continue; } const s = S.silhouette(sample, km.labels, kk); tried.push([kk, s]); if (sil == null || s > sil) { sil = s; chosen = kk; } }
+      if (sil == null) return { kind: 'clusters', title: 'Segmentation', summary: `No clear segments: every split into 2–6 groups leaves a group with fewer than ${minSize} rows, which usually means a few unusual rows rather than real customer types. Try different columns or clean outliers first.`, error: true };
+    }
     const km = S.kmeans(Z.rows, chosen); if (sil == null) sil = S.silhouette(Z.rows, km.labels, chosen);
     const pca = S.pca2(Z.rows); const T = E.theme();
     const prof = [...Array(chosen).keys()].map((c) => { const idx = Z.idx.filter((_, i) => km.labels[i] === c); return ['Segment ' + (c + 1), idx.length].concat(cols.map((n) => S.mean(idx.map((i) => E.col(ds, n).values[i])))); });
@@ -2833,6 +2877,7 @@ details.more > div { margin-top: 10px; }
     const has = (re) => re.test(t);
     const grainWord = has(/daily|by day|per day/) ? 'day' : has(/weekly|by week|per week/) ? 'week' : has(/quarter/) ? 'quarter' : has(/yearly|annual|by year|per year/) ? 'year' : has(/monthly|by month|per month/) ? 'month' : undefined;
     const nMatch = t.match(/(?:next|coming)\s+(\d+)/); const horizon = nMatch ? Math.min(36, +nMatch[1]) : 6;
+    const pickPreds = (target) => { const tv = E.col(ds, target).values; const r = (n) => { const q = S.correlation(E.col(ds, n).values, tv); return q && isFinite(q.r) ? Math.abs(q.r) : 0; }; return p.numeric.filter((n) => n !== target).sort((x, y) => r(y) - r(x)).slice(0, 4).concat(p.dims.filter((d) => E.col(ds, d).values && new Set(E.col(ds, d).values).size <= 10).slice(0, 2)); };
     const out = (block, extra = {}) => ({ engine: 'local', text: extra.text || block.summary, blocks: [block], followups: extra.followups || block.followups || [], plan: block.plan || [] });
 
     const more = question.match(/^tell me more:\s*(.+)$/i);
@@ -2846,7 +2891,7 @@ details.more > div { margin-top: 10px; }
     if (has(/(segment|cluster|personas?|natural groups)/)) return out(A.clusters(ds, nums.length >= 2 ? nums : p.numeric.slice(0, 4)));
     if (has(/(drive|driver|affect|influenc|impact|explain[s]? (the )?(variation|differences)|regress|predictors?|determin)/)) {
       const byPos = hits.filter((h) => h.c.type === 'number').sort((x, y) => y.pos - x.pos).map((h) => h.c.name);
-      const target = (has(/(affect|impact|influenc)/) && byPos.length >= 2 ? byPos[0] : nums[0]) || p.measure; const preds = p.numeric.filter((n) => n !== target).slice(0, 4).concat(p.dims.filter((d) => E.col(ds, d).values && new Set(E.col(ds, d).values).size <= 10).slice(0, 2));
+      const target = (has(/(affect|impact|influenc)/) && byPos.length >= 2 ? byPos[0] : nums[0]) || p.measure; const preds = pickPreds(target);
       return out(A.regression(ds, target, preds));
     }
     if (has(/(correlat|relationship|related|associat|connection between)/)) {
@@ -2854,11 +2899,16 @@ details.more > div { margin-top: 10px; }
       if (cats.length >= 2) return out(A.crosstab(ds, cats[0], cats[1]));
       return out(A.correlation(ds));
     }
-    if (has(/\b(why|caus\w*|reason|what happened|explain the (drop|rise|jump|fall|spike|change))\b/) && p.dateCol) {
+    const monthHit = t.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b(?:\.?\s*(\d{4}))?/), timeWhy = has(/\b(drop|dropped|rise|rose|jump|jumped|fall|fell|spike|dip|dipped|increase|increased|decrease|decreased|declin\w*|grew|surge|changed?|happened|went (up|down))\b/) || (monthHit && has(/\b(in|during|for|of)\s+\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/));
+    if (has(/\b(why|reason|caus\w*)\b/) && !timeWhy && nums[0] && p.numeric.length >= 2) {
+      const target = nums[0]; const preds = pickPreds(target);
+      return out(A.regression(ds, target, preds));
+    }
+    if ((has(/\b(why|caus\w*|reason|what happened|what.?s changed|what changed|explain the (drop|rise|jump|fall|spike|change))\b/) || timeWhy) && p.dateCol) {
       const per = A.periods(ds, p.dateCol, grainWord); const MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-      const mm = t.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(\d{4})?/); const yy = t.match(/\b(20\d\d|19\d\d)\b/);
+      const mm = t.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b(?:\.?\s*(\d{4}))?/); const yy = t.match(/\b(20\d\d|19\d\d)\b/);
       let period = null;
-      if (mm) { const mi = MON.indexOf(mm[1]); const cands = per.filter((x) => new Date(x.ts).getUTCMonth() === mi && (!yy || new Date(x.ts).getUTCFullYear() === +yy[1])); if (cands.length) period = cands[cands.length - 1].ts; }
+      if (mm) { const mi = MON.indexOf(mm[1].slice(0, 3)); const cands = per.filter((x) => new Date(x.ts).getUTCMonth() === mi && (!yy || new Date(x.ts).getUTCFullYear() === +yy[1])); if (cands.length) period = cands[cands.length - 1].ts; }
       return out(A.explainChange(ds, p.dateCol, measure, period, mm ? 'month' : grainWord));
     }
     if (has(/(outlier|unusual|anomal|weird|strange|extreme|suspicious)/)) {
@@ -2876,10 +2926,10 @@ details.more > div { margin-top: 10px; }
       const spec = E.chartFromText(ds, question); const w = E.validateChart(ds, spec).filter((x) => x.level === 'error');
       return { engine: 'local', text: w.length ? w[0].msg : `Here is a ${E.CHART_TYPES.find((c) => c.id === spec.type).label.toLowerCase()} chart: ${spec.title}.`, blocks: w.length ? [] : [{ kind: 'chart', title: spec.title, chart: spec, code: E.chartCode(spec), summary: '' }], followups: ['Open this in the chart builder'], plan: ['Map words to chart type and columns', 'Validate the chart', 'Aggregate and draw'] };
     }
-    const top = has(/\b(top|best|highest|most|largest|biggest|leading|max(imum)?)\b/), bottom = has(/\b(bottom|worst|lowest|least|smallest|min(imum)?|weakest)\b/);
+    const top = has(/\b(top|best|highest|most|largest|biggest|leading|slowest|longest|max(imum)?)\b/), bottom = has(/\b(bottom|worst|lowest|least|smallest|fastest|shortest|quickest|min(imum)?|weakest)\b/);
     const aggWord = has(/\b(average|mean|avg|typical)\b/) ? 'mean' : has(/\bmedian\b/) ? 'median' : has(/\b(count|how many|number of)\b/) ? 'count' : has(/\b(total|sum|overall)\b/) ? 'sum' : null;
     if ((top || bottom || has(/\bwhich\b|\bby\b|\bper\b|\beach\b|breakdown|split/)) && (cats[0] || group)) {
-      const g = cats.find((c) => c !== measure) || group; const agg = aggWord === 'count' ? 'count' : aggWord || (measure ? E.defaultAgg(E.col(ds, measure)) : 'count');
+      const g = cats.find((c) => c !== measure) || group; const speedWord = has(/\b(slowest|fastest|longest|shortest|quickest)\b/); const agg = aggWord === 'count' ? 'count' : aggWord || (speedWord && measure ? 'mean' : measure ? E.defaultAgg(E.col(ds, measure)) : 'count');
       const b = A.groupSummary(ds, g, agg === 'count' ? null : measure, agg === 'count' ? undefined : agg);
       const nM = t.match(/(?:top|bottom)\s+(\d+)/); const n = nM ? +nM[1] : 3;
       const rows = b.table.rows.slice().sort((x, y) => (bottom ? x[1] - y[1] : y[1] - x[1])).slice(0, n);
@@ -3421,9 +3471,10 @@ ${E.schemaForClaude(ds)}`;
     { op: 'drop_duplicates', label: 'Remove duplicate rows', fields: [{ k: 'cols', t: 'multi', kind: 'any', label: 'Match on (optional; blank = every column)' }, { k: 'fuzzy', t: 'bool', label: 'Ignore case, spaces and punctuation' }] },
     { op: 'convert_type', label: 'Change column type', fields: [{ k: 'col', t: 'col', kind: 'any', label: 'Column' }, { k: 'to', t: 'choice', label: 'New type', opts: [['number', 'Number'], ['date', 'Date'], ['category', 'Category'], ['text', 'Text']] }, { k: 'order', t: 'choice', label: 'Date order', opts: [['dmy', 'Day first (31/12/2026)'], ['mdy', 'Month first (12/31/2026)']], show: (p) => p.to === 'date' }] },
     { op: 'text_clean', label: 'Clean up text', fields: [{ k: 'col', t: 'col', kind: 'text', label: 'Column' }, { k: 'fn', t: 'choice', label: 'Action', opts: [['standardize', 'Merge spelling variants'], ['trim', 'Trim extra spaces'], ['title', 'Title Case'], ['lower', 'lowercase'], ['upper', 'UPPERCASE'], ['remove_special', 'Remove special characters']] }] },
-    { op: 'outliers', label: 'Handle outliers', fields: [{ k: 'col', t: 'col', kind: 'num', label: 'Column' }, { k: 'method', t: 'choice', label: 'Detect with', opts: [['iqr', 'IQR fences'], ['zscore', 'z-score']] }, { k: 'k', t: 'number', label: 'Threshold (1.5 IQR / 3 SD)' }, { k: 'action', t: 'choice', label: 'Then', opts: [['cap', 'Cap to the fence'], ['remove', 'Remove the rows']] }] },
+    { op: 'outliers', label: 'Handle outliers', fields: [{ k: 'col', t: 'col', kind: 'num', label: 'Column' }, { k: 'method', t: 'choice', label: 'Detect with', opts: [['iqr', 'IQR fences'], ['logiqr', 'IQR on log scale (skewed data)'], ['zscore', 'z-score']] }, { k: 'k', t: 'number', label: 'Threshold (1.5 IQR / 3 SD)' }, { k: 'action', t: 'choice', label: 'Then', opts: [['cap', 'Cap to the fence'], ['remove', 'Remove the rows']] }] },
     { op: 'extract_date', label: 'Extract part of a date', fields: [{ k: 'col', t: 'col', kind: 'date', label: 'Date column' }, { k: 'part', t: 'choice', label: 'Part', opts: [['month', 'Month'], ['year', 'Year'], ['quarter', 'Quarter'], ['weekday', 'Weekday'], ['yearmonth', 'Year-month'], ['week', 'ISO week'], ['hour', 'Hour']] }] },
     { op: 'filter', label: 'Keep only some rows', fields: [{ k: 'col', t: 'col', kind: 'any', label: 'Column' }, { k: 'op', t: 'choice', label: 'Condition', opts: [['=', 'equals'], ['!=', 'does not equal'], ['>', 'greater than'], ['>=', 'at least'], ['<', 'less than'], ['<=', 'at most'], ['contains', 'contains']] }, { k: 'value', t: 'text', label: 'Value' }] },
+    { op: 'negative_to_missing', label: 'Blank out negative values', fields: [{ k: 'col', t: 'col', kind: 'num', label: 'Column' }] },
     { op: 'replace_value', label: 'Replace a value', fields: [{ k: 'col', t: 'col', kind: 'any', label: 'Column' }, { k: 'from', t: 'text', label: 'Find' }, { k: 'to', t: 'text', label: 'Replace with' }] },
     { op: 'derive', label: 'New calculated column', fields: [{ k: 'name', t: 'text', label: 'New column name' }, { k: 'a', t: 'col', kind: 'num', label: 'Column' }, { k: 'op', t: 'choice', label: 'Operation', opts: [['*', '×'], ['/', '÷'], ['+', '+'], ['-', '−']] }, { k: 'b', t: 'text', label: 'Column name or number', list: 'num' }] },
     { op: 'likert_score', label: 'Turn a scale into scores', fields: [{ k: 'col', t: 'col', kind: 'ordered', label: 'Ordered column' }] },
@@ -3919,7 +3970,7 @@ ${E.schemaForClaude(ds)}`;
     toBuilder(el) { const o = REG.get(el.dataset.k); if (!o) return; const b = o.block || E.insightBlock(o.insight); st.viz[o.ds.id] = Object.assign({}, b.chart); st.activeId = o.ds.id.split(':')[0]; st.panel = 'visualize'; U.render(); },
     toDash(el) { const o = REG.get(el.dataset.k); if (!o) return; const b = o.block || E.insightBlock(o.insight); const id = o.ds.id.split(':')[0]; const d = (st.dash[id] = st.dash[id] || { cards: [], filter: { col: '', value: '' } }); d.cards.push(Object.assign({}, b.chart)); U.toast('Pinned to dashboard · ' + d.cards.length + ' card' + (d.cards.length > 1 ? 's' : '')); },
     applyIssue(el) { const p = E.profile(U.ds()); const i = p.issues.find((x) => x.id === el.dataset.id); if (i && i.fix && applyOp(i.fix.op, i.fix.params)) U.render(); },
-    applyAll() { const ds = U.ds(); let n = 0, guard = 0; const before = E.profile(ds).health.score; while (guard++ < 30) { const i = E.profile(ds).issues.find((x) => x.fix); if (!i) break; if (!applyOp(i.fix.op, i.fix.params, true)) break; n++; } U.toast(`Applied ${n} fixes · health ${before} → ${E.profile(ds).health.score}`); U.render(); },
+    applyAll() { const ds = U.ds(); let n = 0, guard = 0; const before = E.profile(ds).health.score; while (guard++ < 30) { const i = E.profile(ds).issues.find((x) => x.fix); if (!i) break; if (!applyOp(i.fix.op, i.fix.params, true)) break; n++; } U.toast(`Applied ${n} fixes · health ${before} → ${E.profile(ds).health.score}. Missing values were filled, so review them in the change list; undo any you disagree with.`); U.render(); },
     applyOp(el) { if (applyOp(el.dataset.op, parse(el.dataset.params))) U.render(); },
     preview(el) { st.preview = { id: el.dataset.id, op: el.dataset.op, params: parse(el.dataset.params) }; U.render(); },
     cancelPreview() { st.preview = null; U.render(); },

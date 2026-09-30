@@ -16,7 +16,7 @@ services:
       - key: OPENAI_API_KEY
         sync: false
   - type: web
-    name: eyd-web
+    name: explain-your-data
     runtime: docker
     plan: free
     dockerfilePath: ./apps/web/Dockerfile

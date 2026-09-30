@@ -233,9 +233,12 @@
   S.forecast = function (y, h, season) {
     const { scored, hold } = fitBest(y, h, season);
     const best = scored[0]; const r = best.run(y, h);
-    const res = r.fit.map((f, i) => y[i] - f).slice(Math.min(season || 1, y.length - 2));
-    const sigma = S.std(res) || S.std(y) * 0.1; const z80 = 1.2816, z95 = 1.96;
-    return { method: best.name, params: r.params, holdout: hold, comparison: scored.map((c) => ({ name: c.name, rmse: c.rmse, mape: c.mape })), fitted: r.fit, forecast: r.fc.map((v, k) => ({ yhat: v, lo80: v - z80 * sigma * Math.sqrt(k + 1), hi80: v + z80 * sigma * Math.sqrt(k + 1), lo95: v - z95 * sigma * Math.sqrt(k + 1), hi95: v + z95 * sigma * Math.sqrt(k + 1) })), sigma };
+    const burn = best.name.startsWith('Holt-Winters') ? Math.min(season || 1, y.length - 3) : 1; // seasonal fit copies the first season, others need one step to start
+    const res = r.fit.map((f, i) => y[i] - f).slice(burn);
+    const rms = res.length ? Math.sqrt(S.mean(res.map((e) => e * e))) : 0;
+    const sigma = Math.max(rms, isFinite(best.rmse) ? best.rmse : 0) || S.std(y) * 0.1; // never narrower than the out-of-sample error
+    const z80 = 1.2816, z95 = 1.96;
+    return { method: best.name, params: r.params, holdout: hold, comparison: scored.map((c) => ({ name: c.name, rmse: c.rmse, mape: c.mape })), fitted: r.fit, forecast: r.fc.map((v, k) => { const fl = y.every((q) => q >= 0) ? (x) => Math.max(0, x) : (x) => x; return { yhat: v, lo80: fl(v - z80 * sigma * Math.sqrt(k + 1)), hi80: v + z80 * sigma * Math.sqrt(k + 1), lo95: fl(v - z95 * sigma * Math.sqrt(k + 1)), hi95: v + z95 * sigma * Math.sqrt(k + 1) }; }), sigma };
   };
 
   /* ---------- survey reliability ---------- */
