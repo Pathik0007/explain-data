@@ -1,0 +1,16 @@
+# Golden questions: the answer must contain the expected value (computed independently with pandas).
+# Run: python evals/run_evals.py --api http://localhost:8000
+dataset: evals/data/retail_sales_2025-26.csv
+questions:
+  - q: Which product generated the most revenue?
+    expect_text: Dune Sofa
+  - q: What is the total revenue?
+    expect_pandas: df["revenue"].sum()
+  - q: Which region has the most orders?
+    expect_pandas: df["region"].value_counts().idxmax()
+  - q: What is the average rating by channel?
+    expect_pandas: df.groupby("channel")["rating"].mean().round(2).max()
+  - q: How many rows have a missing customer age?
+    expect_pandas: int(df["customer_age"].isna().sum())
+  - q: What is the return rate for Cedar Chair in the West region?
+    expect_pandas: round((df[(df["product"] == "Cedar Chair") & (df["region"] == "West")]["returned"] == "Yes").mean() * 100)

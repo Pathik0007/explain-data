@@ -1,0 +1,36 @@
+# Local full stack: web (Next.js) + api (FastAPI) + worker (RQ) + Postgres + Redis
+services:
+  web:
+    build: ./apps/web
+    ports: ["3000:3000"]
+    environment:
+      API_URL: http://api:8000
+    depends_on: [api]
+  api:
+    build: ./services/api
+    ports: ["8000:8000"]
+    env_file: .env
+    environment:
+      STORAGE_DIR: /data
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://eyd:eyd@db:5432/eyd
+      CORS_ORIGINS: http://localhost:3000
+    volumes: ["datasets:/data"]
+    depends_on: [db, redis]
+  worker:
+    build: ./services/api
+    command: rq worker eyd --url redis://redis:6379
+    env_file: .env
+    environment:
+      STORAGE_DIR: /data
+    volumes: ["datasets:/data"]
+    depends_on: [redis]
+  db:
+    image: postgres:16
+    environment: { POSTGRES_USER: eyd, POSTGRES_PASSWORD: eyd, POSTGRES_DB: eyd }
+    volumes:
+      - pg:/var/lib/postgresql/data
+      - ./services/api/app/db/schema.local.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+  redis:
+    image: redis:7-alpine
+volumes: { datasets: {}, pg: {} }
