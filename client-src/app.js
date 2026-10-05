@@ -44,6 +44,7 @@
   /* ---------- helpers ---------- */
   U.ds = () => st.datasets.find((d) => d.id === st.activeId);
   U.getDs = (id) => st.datasets.find((d) => d.id === id) || st.datasets[0];
+  U.aiName = () => st.aiName || 'Claude';
   U.toast = function (msg, err) { const t = document.createElement('div'); t.className = 'toast' + (err ? ' err' : ''); t.setAttribute('role', 'status'); t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), err ? 5200 : 2600); };
   U.markExplored = (key) => { const ds = U.ds(); if (!ds) return; (st.explored[ds.id] = st.explored[ds.id] || new Set()).add(key); };
   const EXPLORE = [['overview', 'Overview'], ['quality', 'Data quality'], ['discover', 'Discoveries'], ['distribution', 'Distributions'], ['relationships', 'Relationships'], ['trends', 'Trends'], ['segments', 'Segments'], ['visualize', 'Custom charts'], ['ask', 'Questions'], ['report', 'Report']];
@@ -175,7 +176,7 @@
           </label>
           <div class="eyebrow" style="margin-top:22px">Or start from a sample</div>
           <div class="samples">${E.SAMPLE_META.map((s) => `<button class="sample" data-act="sample" data-k="${s.key}"><span class="kind">${s.kind}</span><b>${s.title}</b><small>${s.sub}</small></button>`).join('')}</div>
-          <p class="privacy">${ic('shield')}<span>Files are read and analysed in your browser; nothing is uploaded to a server. When you ask Claude a question, it receives your column summary and computed results, not your rows. *Images are read by Claude.</span></p>
+          <p class="privacy">${ic('shield')}<span>Files are read and analysed in your browser; nothing is uploaded to a server. When AI answers a question, it receives your column summary and computed results, not your rows. *Reading images needs AI.</span></p>
         </div>
         <aside class="preview" aria-label="Live example on the retail sample">
           <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="mono">retail_sales_2025-26.csv</span><span class="muted" style="margin-left:auto">${d.orders.toLocaleString()} rows · 13 columns</span></div>
@@ -226,7 +227,7 @@
         </nav>
         ${text ? '' : `<div class="meter"><b style="color:var(--ink)">Explored ${done.length} of ${EXPLORE.length}</b><div class="track"><i style="width:${(done.length / EXPLORE.length) * 100}%"></i></div>${todo.length ? `Not yet: ${todo.map(([, l]) => l.toLowerCase()).join(', ')}` : 'Every angle covered.'}</div>`}
       </aside>
-      <section class="main" id="main">${panel}</section>
+      <section class="main" id="main">${st.datasets.length > 1 ? `<label class="ds-mobile"><span class="sr">Dataset</span><select class="input" data-change="switchDsSel">${st.datasets.map((d) => `<option value="${d.id}" ${d.id === ds.id ? 'selected' : ''}>${esc(E.short(d.name, 48))}</option>`).join('')}</select></label>` : ''}${panel}</section>
       ${st.panel !== 'ask' ? askBarHTML(ds) : ''}
     </div>`;
   }
@@ -242,13 +243,13 @@
     U.markExplored('overview');
     if (ds.kind === 'text') return U.textOverview(ds);
     const p = E.profile(ds), k = E.kpis(ds), ins = E.discover(ds);
-    const metaParts = [`${p.n.toLocaleString()} rows`, `${p.ncols} columns`, ds.size ? fmt.bytes(ds.size) : null, ds.sheet ? 'sheet ' + ds.sheet : null, ds.steps.length ? `${ds.steps.length} cleaning step${ds.steps.length > 1 ? 's' : ''} applied` : null].filter(Boolean);
+    const metaParts = [`${p.n.toLocaleString()} rows`, `${p.ncols} columns`, ds.size ? fmt.bytes(ds.size) : null, ds.sheet ? 'sheet ' + ds.sheet : null, ds.steps.length ? `${ds.steps.length} cleaning step${ds.steps.length > 1 ? 's' : ''} applied` : null, ds.note || null].filter(Boolean);
     const hcol = (v) => (v >= 90 ? 'var(--good)' : v >= 75 ? 'var(--warn)' : 'var(--crit)');
     const rels = st.datasets.length > 1 ? E.findRelationships(st.datasets).filter((r) => r.a === ds.id || r.b === ds.id) : [];
     return `
       <div class="phead"><div><div class="eyebrow">${esc(ds.source || '')}</div><h2 style="margin-top:6px">${esc(ds.name)}</h2><div class="meta">${metaParts.join(' · ')}</div></div>
         <div class="row"><button class="btn" data-act="panel" data-p="clean">${ic('clean')} Clean data</button><button class="btn primary" data-act="panel" data-p="discover">${ic('discover')} Discover</button></div></div>
-      <div class="kpis">${k.map((x) => `<div class="kpi"><small title="${esc(x.label)}">${esc(x.label)}</small><b class="num">${esc(x.value)}</b>${x.delta != null ? `<span class="delta ${x.delta >= 0 ? 'up' : 'down'}">${x.delta >= 0 ? '▲' : '▼'} ${fmt.signedPct(x.delta)} <span class="muted" style="font-weight:400">${esc(x.deltaLabel)}</span></span>` : ''}${x.spark ? U.sparkSVG(x.spark) : ''}${x.health != null ? `<div class="hbar"><i style="width:${x.health}%;background:${hcol(x.health)}"></i></div>` : ''}</div>`).join('')}</div>
+      <div class="kpis">${k.map((x) => `<div class="kpi"><small title="${esc(x.label)}">${esc(x.label)}</small><b class="num">${esc(x.value)}</b>${x.delta != null ? `<span class="delta ${x.delta >= 0 ? 'up' : 'down'}">${x.delta >= 0 ? '▲' : '▼'} ${fmt.signedPct(x.delta)} <span class="muted" style="font-weight:400">${esc(x.deltaLabel)}</span></span>` : x.deltaLabel ? `<span class="delta muted" style="font-weight:400">${esc(x.deltaLabel)}</span>` : ''}${x.spark ? U.sparkSVG(x.spark) : ''}${x.health != null ? `<div class="hbar"><i style="width:${x.health}%;background:${hcol(x.health)}"></i></div>` : ''}</div>`).join('')}</div>
       <div class="grid2">
         <div class="card"><h3>${ic('discover')} Things I noticed <button class="btn ghost sm right" data-act="panel" data-p="discover">See all ${ins.length} ${ic('arrow')}</button></h3>
           <div class="list-insights">${ins.slice(0, 5).map((i) => `<button class="li-ins" data-act="openInsight" data-id="${i.id}"><span class="kind ${i.kind} k">${i.kind}</span><span class="t">${esc(i.title)}</span><span class="conf">${i.confidence}</span></button>`).join('') || '<p class="muted">Nothing notable yet. Try Analyze.</p>'}</div></div>
@@ -300,8 +301,8 @@
     const a = ds._text; const tables = st.datasets.filter((d) => ds.tables && ds.tables.includes(d.id));
     const read = a.flesch >= 60 ? 'plain' : a.flesch >= 40 ? 'fairly difficult' : 'difficult';
     const kwSpec = a.keywords.length ? { type: 'custom', title: 'Most frequent terms', custom: { traces: [{ type: 'bar', orientation: 'h', y: a.keywords.slice(0, 15).map((k) => k[0]).reverse(), x: a.keywords.slice(0, 15).map((k) => k[1]).reverse(), marker: { color: E.theme().series[0] }, hovertemplate: '%{y}: %{x}<extra></extra>' }], layout: { showlegend: false, margin: { l: 110 }, xaxis: { title: 'Mentions', dtick: a.keywords[0][1] <= 10 ? 1 : undefined } } } } : null;
-    return `<div class="phead"><div><div class="eyebrow">Document · ${esc(ds.source || '')}</div><h2 style="margin-top:6px">${esc(ds.name)}</h2><div class="meta">${a.words.toLocaleString()} words · ${a.sentences.toLocaleString()} sentences · ${a.paragraphs} paragraphs${ds.note ? ' · ' + esc(ds.note) : ''}</div></div>
-      ${st.claude ? `<button class="btn primary" data-act="summariseDoc">${ic('discover')} Summarise with Claude</button>` : ''}</div>
+    return `<div class="phead"><div><div class="eyebrow">Document · ${esc(ds.source || '')}</div><h2 style="margin-top:6px">${esc(ds.name)}</h2><div class="meta">${a.words.toLocaleString()} word${a.words === 1 ? '' : 's'} · ${a.sentences.toLocaleString()} sentence${a.sentences === 1 ? '' : 's'} · ${a.paragraphs} paragraph${a.paragraphs === 1 ? '' : 's'}${ds.note ? ' · ' + esc(ds.note) : ''}</div></div>
+      ${st.claude ? `<button class="btn primary" data-act="summariseDoc">${ic('discover')} Summarise with ${U.aiName()}</button>` : ''}</div>
       <div class="kpis">
         <div class="kpi"><small>Words</small><b class="num">${a.words.toLocaleString()}</b><span class="muted" style="font-size:12px">${a.unique.toLocaleString()} distinct</span></div>
         <div class="kpi"><small>Reading time</small><b class="num">${Math.max(1, Math.round(a.readingMin))} min</b></div>

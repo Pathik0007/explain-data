@@ -155,7 +155,7 @@
         const keys = x ? (x.order ? x.order.slice() : topKeys(x, 12)) : [null];
         keys.forEach((k, i) => { const vals = y.values.filter((v, j) => isNum(v) && (k == null || x.values[j] === k)); traces.push(spec.type === 'box' ? { type: 'box', name: k == null ? y.name : String(k), y: vals, marker: { color: T.series[0], size: 4, outliercolor: T.series[1] }, line: { color: T.series[0], width: 1.5 }, fillcolor: hexA(T.series[0], 0.18), boxpoints: vals.length > 2000 ? false : 'outliers', boxmean: true } : { type: 'violin', name: k == null ? y.name : String(k), y: vals, box: { visible: true }, meanline: { visible: true }, line: { color: T.series[0], width: 1.5 }, fillcolor: hexA(T.series[0], 0.18), points: false }); });
         const yv = S.nums(y.values); const med = S.median(yv); const useLog = yv.length && Math.min(...yv) > 0 && med > 0 && Math.max(...yv) / med > 25;
-        layout.showlegend = false; layout.yaxis = { title: y.name + (useLog ? ' (log scale)' : ''), type: useLog ? 'log' : undefined }; layout.xaxis = { title: x ? x.name : '' };
+        layout.showlegend = false; layout.yaxis = { title: y.name + (useLog ? ' (log scale)' : ''), type: useLog ? 'log' : undefined, dtick: useLog ? 1 : undefined, exponentformat: useLog ? 'none' : undefined, tickformat: useLog ? ',~r' : undefined }; layout.xaxis = { title: x ? x.name : '' };
         table = { columns: [x ? x.name : 'Group', 'n', 'Mean', 'Median', 'Std dev'], rows: keys.map((k) => { const v = S.nums(y.values.filter((_, j) => k == null || x.values[j] === k)); return [k == null ? 'All' : k, v.length, S.mean(v), S.median(v), S.std(v)]; }) };
         break;
       }
@@ -244,6 +244,14 @@
       await window.Plotly.newPlot(div, fig.traces, fig.layout, { staticPlot: true });
       return await window.Plotly.toImage(div, { format, width: w, height: h, scale: format === 'png' ? 2 : 1 });
     } finally { window.Plotly.purge(div); div.remove(); }
+  };
+
+  E.toJpeg = function (dataUrl, q = 0.88, maxW = 1600) {
+    return new Promise((resolve) => {
+      const im = new Image();
+      im.onload = () => { const s = Math.min(1, maxW / im.width); const cv = document.createElement('canvas'); cv.width = Math.round(im.width * s); cv.height = Math.round(im.height * s); const cx = cv.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(im, 0, 0, cv.width, cv.height); try { resolve(cv.toDataURL('image/jpeg', q)); } catch (e) { resolve(null); } };
+      im.onerror = () => resolve(null); im.src = dataUrl;
+    });
   };
 
   /* ---------- code for a chart ---------- */

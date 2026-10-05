@@ -5,12 +5,12 @@ import json
 import math
 import re
 
-_NUM = re.compile(r"(?<![\w.])[-−]?\$?\d[\d,]*(?:\.\d+)?\s?(?:%|[kKmMbB](?![a-zA-Z]))?")
+_NUM = re.compile(r"(?<![\w.])[-−]?[$€£¥₹৳]?\d(?:[\d,]*\d)?(?:\.\d+)?\s?(?:%|[kKmMbB](?![a-zA-Z]))?")
 _SCALE = {"k": 1e3, "m": 1e6, "b": 1e9}
 
 
 def _to_float(token: str) -> tuple[float, bool] | None:
-    t = token.strip().replace("−", "-").replace("$", "").replace(",", "").replace(" ", "")
+    t = re.sub(r"[$€£¥₹৳,\s]", "", token.strip().replace("−", "-"))
     pct = t.endswith("%")
     t = t.rstrip("%")
     scale = 1.0
@@ -53,6 +53,7 @@ def _matches(value: float, is_pct: bool, known: list[float]) -> bool:
     candidates = [value]
     if is_pct:
         candidates.append(value / 100)  # 18.4% may be stored as 0.184
+    candidates += [-c for c in candidates]  # "falls 0.28" for a coefficient of -0.28
     for c in candidates:
         for k in known:
             if k == c:

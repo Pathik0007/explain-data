@@ -333,8 +333,8 @@
       case 'compare': return A.compareGroups(ds, params.measure || p.measure, params.group || p.dims[0]);
       case 'paired': return A.pairedT(ds, params.a, params.b);
       case 'regression': return A.regression(ds, params.target || p.measure, params.predictors && params.predictors.length ? params.predictors : p.numeric.filter((n) => n !== (params.target || p.measure)).slice(0, 5));
-      case 'timeseries': return A.timeSeries(ds, params.date || p.dateCol, params.measure === undefined ? p.measure : params.measure, params.grain, params.agg);
-      case 'forecast': return A.forecast(ds, params.date || p.dateCol, params.measure === undefined ? p.measure : params.measure, +params.horizon || 6, params.grain);
+      case 'timeseries': if (!(params.date || p.dateCol)) return { kind: name, title: 'Trend over time', summary: 'This dataset has no date column, so there is no time trend to show.', error: true }; return A.timeSeries(ds, params.date || p.dateCol, params.measure === undefined ? p.measure : params.measure, params.grain, params.agg);
+      case 'forecast': if (!(params.date || p.dateCol)) return { kind: name, title: 'Forecast', summary: 'This dataset has no date column, so it cannot be forecast.', error: true }; return A.forecast(ds, params.date || p.dateCol, params.measure === undefined ? p.measure : params.measure, +params.horizon || 6, params.grain);
       case 'clusters': return A.clusters(ds, params.cols && params.cols.length ? params.cols : p.numeric.slice(0, 4), params.k ? +params.k : null);
       case 'survey': return A.survey(ds, params.cols);
       case 'outliers': return A.outliers(ds, params.col || p.measure);

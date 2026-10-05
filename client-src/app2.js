@@ -7,6 +7,7 @@
     if (kind === 'num' || kind === 'num?') return c.type === 'number';
     if (kind === 'cat') return c.type === 'category' || (c.type === 'number' && new Set(c.values).size <= 12);
     if (kind === 'date') return c.type === 'date';
+    if (kind === 'filter') return (c.type === 'category' || (c.type === 'number' && c.order)) && new Set(c.values.filter((v) => v != null)).size <= 60;
     if (kind === 'ordered') return !!c.order;
     if (kind === 'text') return c.type === 'category' || c.type === 'text' || c.type === 'id';
     if (kind === 'multi') return c.type === 'number' || c.type === 'category';
@@ -15,7 +16,8 @@
   U.colsBy = colsBy;
   const opt = (v, label, sel) => `<option value="${esc(v)}" ${sel ? 'selected' : ''}>${esc(label)}</option>`;
   function colSelect(ds, kind, value, attrs, allowNone, noneLabel) {
-    const cs = colsBy(ds, kind);
+    let cs = colsBy(ds, kind);
+    if (kind === 'filter') { const u = (c) => new Set(c.values).size; cs = cs.slice().sort((x, y) => u(x) - u(y)); }
     return `<select class="input" ${attrs}>${allowNone ? opt('', noneLabel || '—', !value) : ''}${cs.map((c) => opt(c.name, E.short(c.name, 40), c.name === value)).join('')}</select>`;
   }
 
@@ -193,7 +195,7 @@
       <div class="viz">
         <div class="card builder">
           <form class="field" data-submit="describeChart"><span>Describe your chart</span><div class="describe-box"><input class="input" name="q" id="vDesc" placeholder="e.g. monthly revenue by region" autocomplete="off"><button class="btn primary" type="submit" aria-label="Generate chart">${ic('wand')}</button></div></form>
-          <div class="field"><span>Chart type</span><div class="types">${E.CHART_TYPES.map((t) => `<button class="${t.id === spec.type ? 'on' : ''}" data-act="vType" data-t="${t.id}" title="${t.label}">${tIcon(t.id)}${t.label.replace(' (diverging)', '').replace('Horizontal bar', 'H-bar').replace('Correlation matrix', 'Correlation').replace('100% stacked', '100%')}</button>`).join('')}</div></div>
+          <div class="field"><span>Chart type</span><div class="types">${E.CHART_TYPES.map((t) => `<button class="${t.id === spec.type ? 'on' : ''}" data-act="vType" data-t="${t.id}" title="${t.label}" ${(t.id === 'likert' && !ds.cols.some((c) => c.order)) || (t.id === 'corr' && E.profile(ds).numeric.length < 2) ? 'disabled style="opacity:.4;cursor:not-allowed"' : ''}>${tIcon(t.id)}${t.label.replace(' (diverging)', '').replace('Horizontal bar', 'H-bar').replace('Correlation matrix', 'Correlation').replace('100% stacked', '100%')}</button>`).join('')}</div></div>
           ${need.x ? f(spec.type === 'histogram' ? 'Values' : 'X axis', anyCol('x', spec.x, spec.type === 'box' || spec.type === 'violin' ? 'None' : null)) : ''}
           ${need.y || spec.type === 'box' || spec.type === 'violin' ? f(spec.type === 'heatmap' ? 'Rows' : 'Y axis (measure)', spec.type === 'heatmap' ? anyCol('y', spec.y) : colSelect(ds, 'num', spec.y, at('y'), need.y === 'num?', 'Count rows')) : ''}
           ${spec.type === 'heatmap' ? f('Colour by', colSelect(ds, 'num', spec.z, at('z'), true, 'Count rows')) : ''}
@@ -230,7 +232,7 @@
         <p class="ink2">${esc(engine)}</p>
         <div class="starters">${E.suggestQuestions(ds).map((q) => `<button class="chip" data-act="ask" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
     return `<div class="phead" style="max-width:900px;margin:0 auto 18px"><div><div class="eyebrow">Ask</div><div class="meta">${esc(ds.name)}</div></div>
-      ${st.claude ? `<div class="seg" role="group" aria-label="Answer engine"><button class="${st.useClaude ? 'on' : ''}" data-act="engine" data-v="1">Claude</button><button class="${st.useClaude ? '' : 'on'}" data-act="engine" data-v="0">Built-in</button></div>` : `<span class="engine"><i></i> Built-in engine</span>`}
+      ${st.claude ? `<div class="seg" role="group" aria-label="Answer engine"><button class="${st.useClaude ? 'on' : ''}" data-act="engine" data-v="1">${U.aiName()}</button><button class="${st.useClaude ? '' : 'on'}" data-act="engine" data-v="0">Built-in</button></div>` : `<span class="engine"><i></i> Built-in engine</span>`}
       ${chat.length ? `<button class="btn ghost sm" data-act="clearChat">${ic('trash')} Clear</button>` : ''}</div>
       <div class="chat">${body}<div id="chatEnd"></div></div>
       <div class="askbar"><form data-submit="ask"><label class="sr" for="askIn">Ask about your data</label><input id="askIn" name="q" autocomplete="off" placeholder="Ask a question, e.g. ${esc(E.suggestQuestions(ds)[1] || 'what stands out?')}">${U.busy ? `<button class="btn" type="button" data-act="stopAsk">${ic('stop')} Stop</button>` : `<button class="btn primary" type="submit">${ic('arrow')} Ask</button>`}</form></div>`;
@@ -243,6 +245,7 @@
       const r = m.a;
       a = `<div class="engine"><i></i>${r.engine === 'claude' || r.engine === 'server' ? `Answered with ${r.engine === 'server' ? 'AI' : 'Claude'} · ${r.plan.length} calculation${r.plan.length === 1 ? '' : 's'} run on your data` : 'Built-in engine · calculated from your rows'}</div>
         <div class="answer">${esc(r.text)}</div>
+        ${r.engine !== 'local' ? (r.unverified && r.unverified.length ? `<div class="verify bad" role="note">${ic('shield')} Not verified: ${r.unverified.map(esc).join(', ')}. ${r.unverified.length > 1 ? 'These figures were' : 'This figure was'} not found in the computed results, so treat ${r.unverified.length > 1 ? 'them' : 'it'} with caution.</div>` : `<div class="verify ok" role="note">${ic('check')} Every number in this answer matches a computed result.</div>`) : ''}
         ${r.blocks.map((b) => U.blockHTML(b, ds, { small: r.blocks.length > 1, collapseTable: true, maxRows: 10 })).join('')}
         ${r.engine !== 'local' && r.plan.length && st.pro ? `<details class="more"><summary>Tool calls</summary><div><ol class="evidence">${r.plan.map((p) => `<li class="mono" style="font-size:11.5px">${esc(p)}</li>`).join('')}</ol></div></details>` : ''}
         ${r.followups && r.followups.length ? `<div class="qchips">${r.followups.map((q) => `<button class="chip" data-act="ask" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : ''}`;
@@ -269,8 +272,9 @@
       }
     } catch (e) {
       if (e && e.code === 'cancelled') { m.status = 'error'; m.error = 'Stopped.'; U.busy = false; U.render(); return; }
-      if (e && ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'tools_unavailable'].includes(e.code)) { st.useClaude = false; if (e.code !== 'tools_unavailable') st.claude = false; U.toast('Claude is off for this page, so the built-in engine answered.'); }
-      else if (e && e.code === 'rate_limited') U.toast('Claude is busy right now; the built-in engine answered instead.');
+      if (e && ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'tools_unavailable'].includes(e.code)) { st.useClaude = false; if (e.code !== 'tools_unavailable') st.claude = false; U.toast(U.aiName() + ' is off for this page, so the built-in engine answered.'); }
+      else if (e && e.code === 'rate_limited') U.toast(U.aiName() + ' is busy right now; the built-in engine answered instead.');
+      else if (e && (e.code === 'timeout' || e.code === 'network' || e.code === 'upstream_error')) U.toast(U.aiName() + ' did not respond, so the built-in engine answered instead.');
       else if (e) console.warn('Claude answer failed', e);
       res = null;
     }
@@ -294,7 +298,7 @@
     const k = E.kpis(view);
     return `<div class="phead"><div><div class="eyebrow">Dashboard</div><h2 style="margin-top:6px">${esc(E.short(ds.name, 50))}</h2><div class="meta">Pin charts from anywhere. Filters apply to every card.</div></div>
       <div class="row"><button class="btn" data-act="autoDash">${ic('wand')} ${d.cards.length ? 'Rebuild' : 'Build'} automatically</button></div></div>
-      <div class="row" style="margin-bottom:14px"><label class="field" style="width:220px"><span>Filter by</span>${colSelect(ds, 'cat', d.filter.col, 'data-change="dashFilterCol" id="dfc"', true, 'No filter')}</label>
+      <div class="row" style="margin-bottom:14px"><label class="field" style="width:220px"><span>Filter by</span>${colSelect(ds, 'filter', d.filter.col, 'data-change="dashFilterCol" id="dfc"', true, 'No filter')}</label>
         ${fc ? `<label class="field" style="width:220px"><span>Value</span><select class="input" data-change="dashFilterVal" id="dfv">${opt('', 'All', d.filter.value === '')}${vals.map((v) => opt(v, v, String(d.filter.value) === String(v))).join('')}</select></label>` : ''}
         ${view !== ds ? `<span class="pill" style="align-self:flex-end;margin-bottom:6px">${view.n.toLocaleString()} of ${ds.n.toLocaleString()} rows</span>` : ''}</div>
       <div class="kpis">${k.map((x) => `<div class="kpi"><small>${esc(x.label)}</small><b class="num">${esc(x.value)}</b>${x.delta != null ? `<span class="delta ${x.delta >= 0 ? 'up' : 'down'}">${fmt.signedPct(x.delta)}</span>` : ''}${x.spark ? U.sparkSVG(x.spark) : ''}</div>`).join('')}</div>
@@ -321,7 +325,7 @@
           <label class="sr" for="rTitle">Report title</label><input id="rTitle" class="input" data-change="rTitle" value="${esc(r.title)}" style="font:700 28px/1.2 var(--f-display);border:0;padding:0;background:transparent;letter-spacing:-.02em">
           <div class="byline">${esc(STYLES.find((s) => s[0] === r.style)[1])} report · ${fmt.date(Date.now())} · ${esc([...new Set(items.map((i) => i.dsName))].join(', ') || ds.name)}</div>
           <h2 style="margin-top:0">Summary</h2>
-          ${r.writing ? `<div class="thinking"><span class="pulse"></span> Writing the narrative from your ${items.length} findings…</div><div class="exec" id="narrStream"></div>` : n ? `<div class="exec">${esc(n.summary)}</div>` : `<p class="muted">${items.length ? 'Write the summary with Claude or draft one from the findings.' : 'Add findings to start. Use "Add to report" on any insight, chart or analysis, or build one automatically.'}</p>`}
+          ${r.writing ? `<div class="thinking"><span class="pulse"></span> Writing the narrative from your ${items.length} findings…</div><div class="exec" id="narrStream"></div>` : n ? `<div class="exec">${esc(n.summary)}</div>` : `<p class="muted">${items.length ? (st.claude ? `Write the summary with ${U.aiName()} or draft one from the findings.` : 'Draft a summary from the findings.') : 'Add findings to start. Use "Add to report" on any insight, chart or analysis, or build one automatically.'}</p>`}
           ${items.map((it, i) => `<section class="ritem"><div class="tools"><button class="btn ghost sm" data-act="rMove" data-i="${i}" data-d="-1" aria-label="Move up">${ic('up')}</button><button class="btn ghost sm" data-act="rMove" data-i="${i}" data-d="1" aria-label="Move down">${ic('down')}</button><button class="btn ghost sm" data-act="rRemove" data-i="${i}" aria-label="Remove">${ic('trash')}</button></div>
             <h2 style="margin-top:4px;padding-right:110px">${esc(it.title)}</h2>
             ${n && n.notes && n.notes[i] ? `<p style="margin-bottom:8px">${esc(n.notes[i])}</p>` : ''}
@@ -336,7 +340,7 @@
           <div class="card"><h3>Style</h3><div class="stack" style="gap:6px">${STYLES.map(([k, l, d]) => `<label class="check" style="align-items:flex-start"><input type="radio" name="rstyle" data-change="rStyle" value="${k}" ${r.style === k ? 'checked' : ''}><span><b style="color:var(--ink)">${l}</b><br><span class="muted" style="font-size:12px">${d}</span></span></label>`).join('')}</div></div>
           <div class="card"><h3>Build</h3><div class="stack" style="gap:8px">
             <button class="btn" data-act="autoReport">${ic('wand')} Add top findings</button>
-            ${st.claude ? `<button class="btn primary" data-act="writeNarrative" ${items.length && !r.writing ? '' : 'disabled'}>${ic('discover')} Write with Claude</button>` : ''}
+            ${st.claude ? `<button class="btn primary" data-act="writeNarrative" ${items.length && !r.writing ? '' : 'disabled'}>${ic('discover')} Write with ${U.aiName()}</button>` : ''}
             <button class="btn" data-act="draftNarrative" ${items.length ? '' : 'disabled'}>${ic('doc')} Draft summary</button>
             ${items.length ? `<button class="btn ghost" data-act="clearReport">${ic('trash')} Clear report</button>` : ''}</div></div>
           <div class="card"><h3>Export</h3><div class="stack" style="gap:8px">
@@ -376,7 +380,7 @@
       r.narrative = { summary: String(res.summary || ''), notes: res.notes || {}, recommendations: (res.recommendations || []).map(String), limitations: (res.limitations || []).map(String) };
     } catch (e) {
       if (e && e.code === 'not_granted') st.claude = false;
-      U.toast(e && e.code === 'rate_limited' ? 'Claude is busy. A draft summary was written instead.' : 'Claude could not write the narrative, so a draft summary was written instead.', true);
+      U.toast(e && e.code === 'rate_limited' ? U.aiName() + ' is busy. A draft summary was written instead.' : U.aiName() + ' could not write the narrative, so a draft summary was written instead.', true);
       U.draftNarrative();
     }
     r.writing = false; U.render();
@@ -408,7 +412,8 @@
     }
     if (f === 'pdf') {
       await E.need('jspdf');
-      const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
+      const jpgs = await Promise.all(assets.map(({ img }) => (img ? E.toJpeg(img, 0.88) : null))); // PNG charts at 2x made 50+ MB PDFs
       const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 50; let y = M;
       const need = (h) => { if (y + h > H - M) { doc.addPage(); y = M; } };
       const text = (s, size, style, color) => { doc.setFont('helvetica', style || 'normal'); doc.setFontSize(size); doc.setTextColor(color || '#16201d'); const lines = doc.splitTextToSize(String(s || ''), W - 2 * M); lines.forEach((l) => { need(size * 1.35); doc.text(l, M, y + size); y += size * 1.35; }); };
@@ -418,7 +423,7 @@
         need(60); text(it.title, 14, 'bold'); y += 2;
         if (n && n.notes && n.notes[i]) { text(n.notes[i], 11); y += 4; }
         text(it.summary, 10.5, 'normal', '#3d4946'); y += 6;
-        if (img) { const w = W - 2 * M, h = w * 0.52; need(h + 8); doc.addImage(img, 'PNG', M, y, w, h); y += h + 8; }
+        if (img) { const w = W - 2 * M, h = w * 0.52; need(h + 8); doc.addImage(jpgs[i] || img, jpgs[i] ? 'JPEG' : 'PNG', M, y, w, h, undefined, 'FAST'); y += h + 8; }
         if (it.table && doc.autoTable && r.style !== 'executive' && r.style !== 'marketing') { doc.autoTable({ startY: y, margin: { left: M, right: M }, head: [it.table.columns.map((c) => E.short(c, 24))], body: it.table.rows.slice(0, 12).map((row) => row.map((v, j) => (typeof v === 'number' ? ((it.table.pct && j > 0) || (it.table.pctCols || []).includes(j) ? fmt.pct(v) : fmt.num(v, Math.abs(v) < 1 ? 3 : 2)) : String(v ?? '')))), styles: { fontSize: 8, cellPadding: 3 }, headStyles: { fillColor: [11, 110, 105] } }); y = doc.lastAutoTable.finalY + 14; }
         y += 8;
       });

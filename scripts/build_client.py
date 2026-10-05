@@ -22,7 +22,12 @@ def build(artifact: bool) -> str:
         return f"<title>Explain Your Data</title>\n{FONTS}\n<style>\n{css}\n</style>\n{body}\n"
     head = ('<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
             '<title>Explain Your Data</title><meta name="description" content="Upload any data and get cleaning, statistics, charts, plain-language explanations and reports.">'
-            '<meta name="eyd-api" content="/api">')
+            '<meta name="eyd-api" content="/api">'
+            '<meta name="theme-color" content="#0f6b5c">'
+            '<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%2316201d%22/%3E%3Crect x=%228%22 y=%2216%22 width=%224%22 height=%228%22 rx=%221%22 fill=%22%2335b39b%22/%3E%3Crect x=%2214%22 y=%2211%22 width=%224%22 height=%2213%22 rx=%221%22 fill=%22%23fff%22/%3E%3Crect x=%2220%22 y=%227%22 width=%224%22 height=%2217%22 rx=%221%22 fill=%22%2335b39b%22/%3E%3C/svg%3E">'
+            '<meta property="og:type" content="website"><meta property="og:title" content="Explain Your Data">'
+            '<meta property="og:description" content="Upload a spreadsheet, survey or dataset. Get it cleaned, analysed, charted and explained, with every number computed and checked.">'
+            '<meta property="og:image" content="https://pathik0007.github.io/explain-data/assets/og.png"><meta name="twitter:card" content="summary_large_image">')
     return f'<!doctype html>\n<html lang="en">\n<head>\n{head}\n{FONTS}\n<style>\nhtml,body{{margin:0}}[hidden]{{display:none!important}}img{{max-width:100%}}\n{css}\n</style>\n</head>\n<body>\n{body}\n</body>\n</html>\n'
 
 

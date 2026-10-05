@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Explain Your Data: data analysis you can check</title>
+<meta name="description" content="Upload a spreadsheet, survey or research dataset. Explain Your Data cleans it, runs the right statistics, draws the charts and explains the results. AI plans and explains; deterministic code computes; a validator checks every number.">
+<meta name="theme-color" content="#0f6b5c">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pathik0007.github.io/explain-data/">
+<meta property="og:title" content="Explain Your Data">
+<meta property="og:description" content="Upload a dataset. Get it cleaned, analysed, charted and explained, with every number computed by code and checked before it is shown.">
+<meta property="og:image" content="https://pathik0007.github.io/explain-data/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%2316201d%22/%3E%3Crect x=%228%22 y=%2216%22 width=%224%22 height=%228%22 rx=%221%22 fill=%22%2335b39b%22/%3E%3Crect x=%2214%22 y=%2211%22 width=%224%22 height=%2213%22 rx=%221%22 fill=%22%23fff%22/%3E%3Crect x=%2220%22 y=%227%22 width=%224%22 height=%2217%22 rx=%221%22 fill=%22%2335b39b%22/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #f4f6f5; --surface: #ffffff; --sunk: #eaefed; --ink: #121a18; --ink2: #33403c; --muted: #5d6b67; --line: #dbe2df;
+  --brand: #0f6b5c; --brand-ink: #ffffff; --accent: #35b39b; --accent-soft: #e2f3ef; --warn: #9a6200; --warn-soft: #fbefd6; --crit: #b83a30; --crit-soft: #f8e1de; --good: #1b7f3a;
+  --shadow: 0 1px 2px rgba(18,26,24,.05), 0 8px 28px rgba(18,26,24,.08);
+  --f-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif; --f-body: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif; --f-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1312; --surface: #141c1a; --sunk: #1a2421; --ink: #e8efec; --ink2: #c3cfcb; --muted: #8e9d98; --line: #26322f;
+    --brand: #35b39b; --brand-ink: #06231d; --accent: #4fd0b5; --accent-soft: #12302a; --warn: #e3a52c; --warn-soft: #33270d; --crit: #ef6f63; --crit-soft: #3a1a17; --good: #3fbf62;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.35); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1312; --surface: #141c1a; --sunk: #1a2421; --ink: #e8efec; --ink2: #c3cfcb; --muted: #8e9d98; --line: #26322f;
+  --brand: #35b39b; --brand-ink: #06231d; --accent: #4fd0b5; --accent-soft: #12302a; --warn: #e3a52c; --warn-soft: #33270d; --crit: #ef6f63; --crit-soft: #3a1a17; --good: #3fbf62;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 28px rgba(0,0,0,.35); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--f-body); -webkit-font-smoothing: antialiased; }
+img { max-width: 100%; height: auto; display: block; }
+a { color: inherit; }
+.wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+h1, h2, h3 { font-family: var(--f-display); letter-spacing: -0.02em; line-height: 1.08; margin: 0; }
+h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 750; }
+h3 { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+p { margin: 0; }
+.eyebrow { font: 600 12px/1 var(--f-body); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.lede { color: var(--ink2); font-size: 18px; max-width: 62ch; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--f-mono); }
+
+/* nav */
+.nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--line); }
+.nav .wrap { display: flex; align-items: center; gap: 20px; height: 60px; }
+.logo { white-space: nowrap; display: flex; align-items: center; gap: 10px; font: 750 17px var(--f-display); text-decoration: none; letter-spacing: -0.01em; }
+.logo svg { width: 26px; height: 26px; }
+.nav .links { display: flex; gap: 22px; margin-left: auto; font-size: 14.5px; }
+.nav .links a { text-decoration: none; color: var(--ink2); }
+.nav .links a:hover { color: var(--ink); }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; border-radius: 10px; font: 600 15px var(--f-body); text-decoration: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink); white-space: nowrap; transition: transform .12s ease, box-shadow .12s ease; }
+.btn:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+.btn.primary { background: var(--brand); color: var(--brand-ink); border-color: transparent; }
+.btn.sm { height: 36px; padding: 0 14px; font-size: 14px; }
+.btn svg { width: 17px; height: 17px; }
+
+/* hero */
+.hero { padding-top: 72px; padding-bottom: 40px; }
+.hero h1 { font-size: clamp(40px, 6.4vw, 76px); font-weight: 800; margin: 14px 0 20px; max-width: 14ch; }
+.hero h1 em { font-style: normal; color: var(--brand); }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 28px; }
+.note { margin-top: 14px; font-size: 13.5px; color: var(--muted); display: flex; gap: 8px; align-items: flex-start; }
+.note svg { width: 16px; height: 16px; flex: none; margin-top: 3px; }
+.frame { margin-top: 48px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); }
+.frame .bar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--sunk); font: 12.5px var(--f-mono); color: var(--muted); }
+.frame .bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+.frame .bar span { margin-left: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.formats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 30px; }
+.formats span { font: 12.5px var(--f-mono); padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink2); }
+
+section { padding: 76px 0; }
+section.alt { background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.head { display: grid; gap: 14px; margin-bottom: 40px; max-width: 760px; }
+
+/* principle */
+.steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.step { padding: 24px 22px 26px; border-left: 1px solid var(--line); position: relative; }
+.step:first-child { border-left: 0; }
+.step .who { display: inline-block; font: 600 11.5px var(--f-mono); letter-spacing: .04em; padding: 3px 8px; border-radius: 999px; margin-bottom: 14px; }
+.who.ai { background: var(--accent-soft); color: var(--brand); }
+.who.code { background: var(--sunk); color: var(--ink2); border: 1px solid var(--line); }
+.step h3 { margin-bottom: 8px; }
+.step p { color: var(--ink2); font-size: 15px; }
+.step .n { position: absolute; top: 22px; right: 20px; font: 600 13px var(--f-mono); color: var(--muted); }
+
+/* validator */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 48px; align-items: start; }
+.checks { display: grid; gap: 14px; margin-top: 8px; }
+.check { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; }
+.check svg { width: 22px; height: 22px; color: var(--brand); margin-top: 2px; }
+.check b { display: block; font-weight: 600; }
+.check span { color: var(--ink2); font-size: 15px; }
+.demo { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.demo .row { padding: 16px 18px; border-top: 1px solid var(--line); }
+.demo .row:first-child { border-top: 0; }
+.demo .lbl { font: 600 11.5px var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.demo pre { margin: 0; font: 13px/1.6 var(--f-mono); white-space: pre-wrap; color: var(--ink2); }
+.demo .ans { font-size: 15.5px; }
+mark.ok { background: color-mix(in srgb, var(--good) 16%, transparent); color: inherit; border-radius: 4px; padding: 0 3px; }
+mark.bad { background: var(--crit-soft); color: var(--crit); border-radius: 4px; padding: 0 3px; font-weight: 600; }
+.flag { display: flex; gap: 8px; align-items: flex-start; background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 9px 11px; font-size: 13.5px; margin-top: 12px; }
+.flag svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
+
+/* guards */
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+section.alt .card { background: var(--bg); }
+.card h3 { margin-bottom: 8px; font-size: 17px; }
+.card p { color: var(--ink2); font-size: 15px; }
+.card .ex { margin-top: 12px; font: 12.5px/1.5 var(--f-mono); color: var(--muted); border-top: 1px dashed var(--line); padding-top: 10px; }
+
+/* gallery */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+.tabs button { font: 500 14px var(--f-body); height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink2); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.shot-cap { margin-top: 14px; color: var(--ink2); font-size: 15px; max-width: 70ch; }
+.mobile { display: grid; grid-template-columns: repeat(2, minmax(0, 220px)) minmax(0, 1fr); gap: 20px; align-items: center; margin-top: 40px; }
+.phone { border-radius: 26px; overflow: hidden; border: 1px solid var(--line); box-shadow: var(--shadow); background: var(--surface); }
+
+/* features */
+.feat { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 30px 36px; }
+.feat h3 { font-size: 16.5px; margin-bottom: 10px; display: flex; gap: 9px; align-items: center; }
+.feat h3 svg { width: 18px; height: 18px; color: var(--brand); }
+.feat ul { margin: 0; padding-left: 18px; color: var(--ink2); font-size: 15px; display: grid; gap: 5px; }
+
+/* architecture */
+.arch { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.node { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 18px; }
+section.alt .node { background: var(--bg); }
+.node .t { font: 700 16px var(--f-display); margin-bottom: 4px; }
+.node .s { font: 12.5px var(--f-mono); color: var(--muted); margin-bottom: 10px; }
+.node ul { margin: 0; padding-left: 17px; font-size: 14.5px; color: var(--ink2); display: grid; gap: 4px; }
+.link { display: grid; place-items: center; color: var(--muted); font: 12px var(--f-mono); text-align: center; min-width: 70px; }
+.link svg { width: 40px; height: 16px; color: var(--accent); }
+.data-note { margin-top: 18px; display: flex; gap: 10px; align-items: flex-start; color: var(--ink2); font-size: 15px; }
+.data-note svg { width: 18px; height: 18px; color: var(--brand); flex: none; margin-top: 3px; }
+
+/* status */
+.status { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.status ul { margin: 10px 0 0; padding-left: 18px; color: var(--ink2); font-size: 15px; display: grid; gap: 6px; }
+.pill { display: inline-block; font: 600 11.5px var(--f-mono); padding: 3px 9px; border-radius: 999px; }
+.pill.done { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+.pill.next { background: var(--sunk); color: var(--muted); border: 1px solid var(--line); }
+
+/* closing */
+.closing { text-align: center; padding-top: 84px; padding-bottom: 96px; }
+.closing h2 { max-width: 20ch; margin: 0 auto 14px; }
+.closing .cta { justify-content: center; }
+footer { border-top: 1px solid var(--line); padding: 26px 0 40px; font-size: 14px; color: var(--muted); }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; }
+footer a { color: var(--ink2); }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+@media (max-width: 960px) {
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .step:nth-child(3) { border-left: 0; } .step:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .split, .status { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .cards, .feat { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .arch { grid-template-columns: minmax(0, 1fr); }
+  .link { min-height: 34px; display: flex; gap: 10px; justify-content: center; align-items: center; } .link svg { transform: rotate(90deg); width: 26px; } .link br { display: none; }
+  .mobile { grid-template-columns: repeat(2, minmax(0, 1fr)); } .mobile .txt { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .wrap { padding: 0 16px; }
+  .nav .links a:not(.keep) { display: none; }
+  .hero { padding-top: 44px; padding-bottom: 24px; }
+  section { padding: 56px 0; }
+  .steps, .cards, .feat { grid-template-columns: minmax(0, 1fr); }
+  .step { border-left: 0; border-top: 1px solid var(--line); } .step:first-child { border-top: 0; }
+  .cta .btn { flex: 1 1 auto; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn { transition: none; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-gh" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 00-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 015 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0012 2z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></symbol>
+  <symbol id="i-wand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20L15 9M14 4v3M19 9h-3M18 5l-2 2"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h16M7 16v-5M12 16V7M17 16v-8"/></symbol>
+  <symbol id="i-flask" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6L5 19a1 1 0 001 1.5h12A1 1 0 0019 19l-5-10V3"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 01-11.6 7.1L4 20l1-4.4A8 8 0 1121 12z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/></symbol>
+</svg>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="Explain Your Data home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#16201d"/><rect x="8" y="16" width="4" height="8" rx="1" fill="#35b39b"/><rect x="14" y="11" width="4" height="13" rx="1" fill="#fff"/><rect x="20" y="7" width="4" height="17" rx="1" fill="#35b39b"/></svg>
+      Explain Your Data
+    </a>
+    <nav class="links" aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#validator">Validator</a>
+      <a href="#tour">Tour</a>
+      <a href="#architecture">Architecture</a>
+      <a class="keep" href="https://github.com/Pathik0007/explain-data">GitHub</a>
+    </nav>
+    <a class="btn primary sm" href="https://explain-your-data.onrender.com" rel="noopener">Launch app <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <div class="eyebrow">Open-source data analysis workspace</div>
+    <h1>Data analysis you can <em>check.</em></h1>
+    <p class="lede">Upload a spreadsheet, survey export or research dataset. Explain Your Data profiles it, helps you clean it, runs the right statistics, draws the charts and explains the result in plain language. AI decides what to run and writes the explanation. Code computes every number, and a validator checks the answer before you see it.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://explain-your-data.onrender.com" rel="noopener">Launch the live app <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+      <a class="btn" href="https://github.com/Pathik0007/explain-data"><svg aria-hidden="true"><use href="#i-gh"/></svg> View the source</a>
+    </div>
+    <p class="note"><svg aria-hidden="true"><use href="#i-clock"/></svg><span>The live app runs on free hosting that sleeps when idle, so the first visit can take up to a minute to load. Three sample datasets are built in if you don't have a file to hand.</span></p>
+    <div class="frame">
+      <div class="bar"><i></i><i></i><i></i><span>explain-your-data.onrender.com · retail_sales_2025-26.csv</span></div>
+      <img src="assets/overview.webp" width="1600" height="1000" alt="The Overview screen for a retail sales dataset: total revenue $1.39M, 3,532 orders, a dataset health score of 94 out of 100, ranked findings and suggested data fixes.">
+    </div>
+    <div class="formats" aria-label="Supported formats">
+      <span>CSV</span><span>Excel</span><span>ODS</span><span>JSON</span><span>ZIP</span><span>DOCX</span><span>PDF</span><span>TXT · MD · HTML · XML</span><span>Google Forms exports</span><span>SPSS · Stata · SAS · Parquet (server)</span>
+    </div>
+  </div>
+
+  <section class="alt" id="how">
+    <div class="wrap">
+      <div class="head">
+        <div class="eyebrow">The principle</div>
+        <h2>The model never does the arithmetic.</h2>
+        <p class="lede">Language models are good at choosing an analysis and explaining it. They are unreliable calculators. So the work is split, and each half does what it is good at.</p>
+      </div>
+      <div class="steps">
+        <div class="step"><span class="n">01</span><span class="who ai">AI</span><h3>Plan</h3><p>Reads your question and a summary of the columns (never the rows) and picks tools: aggregate, regression, forecast, chart.</p></div>
+        <div class="step"><span class="n">02</span><span class="who code">code</span><h3>Compute</h3><p>Deterministic code runs those tools on the full dataset in your browser: descriptive statistics, tests, models, forecasts.</p></div>
+        <div class="step"><span class="n">03</span><span class="who code">code</span><h3>Verify</h3><p>Every number in the drafted answer is matched against the computed results. Unsupported figures are sent back once for repair, then flagged.</p></div>
+        <div class="step"><span class="n">04</span><span class="who ai">AI</span><h3>Explain</h3><p>The checked result is written up in plain language, or rewritten for a CEO, a client, a student or an academic paper.</p></div>
+      </div>
+      <p class="data-note"><svg aria-hidden="true"><use href="#i-lock"/></svg><span>Without an AI key the app still works end to end: a built-in engine maps questions to the same analyses, so every feature except AI-written prose runs offline in the browser.</span></p>
+    </div>
+  </section>
+
+  <section id="validator">
+    <div class="wrap split">
+      <div>
+        <div class="head" style="margin-bottom:22px">
+          <div class="eyebrow">The validator</div>
+          <h2>A number that wasn't computed doesn't get through silently.</h2>
+        </div>
+        <div class="checks">
+          <div class="check"><svg aria-hidden="true"><use href="#i-check"/></svg><div><b>Extracts every figure</b><span>Percentages, currency, thousands separators and abbreviations like $1.24M or 54.3K.</span></div></div>
+          <div class="check"><svg aria-hidden="true"><use href="#i-check"/></svg><div><b>Matches against the tool results</b><span>Allows for rounding (about 1%), 18.4% stored as 0.184, and a sign dropped in prose ("falls 0.28" for a coefficient of −0.28). Years and small counting words are ignored.</span></div></div>
+          <div class="check"><svg aria-hidden="true"><use href="#i-check"/></svg><div><b>One repair round, then a visible flag</b><span>The model gets one chance to fix the answer. Anything still unsupported is shown to the user as "not verified" rather than hidden.</span></div></div>
+          <div class="check"><svg aria-hidden="true"><use href="#i-check"/></svg><div><b>Same rules on server and browser</b><span>A Python implementation guards the API; a JavaScript copy checks answers produced inside the browser. The two give identical results on the same test cases.</span></div></div>
+        </div>
+      </div>
+      <div class="demo" aria-label="Example of the validator">
+        <div class="row"><div class="lbl">Question</div><div class="ans">Which region has the slowest delivery, and how much slower is it?</div></div>
+        <div class="row"><div class="lbl">Computed by code</div><pre>aggregate(mean delivery_days by region)
+Perth      4.28
+Melbourne  2.50
+Sydney     2.35
+…
+Adelaide   2.08</pre></div>
+        <div class="row"><div class="lbl">Drafted answer</div><div class="ans">Perth is slowest at <mark class="ok">4.28</mark> days on average, against <mark class="ok">2.08</mark> in Adelaide: about <mark class="bad">106%</mark> longer.</div>
+          <div class="flag" role="note"><svg aria-hidden="true"><use href="#i-warn"/></svg><span>Not verified: 106%. This figure was not found in the computed results, so treat it with caution.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="guards">
+    <div class="wrap">
+      <div class="head">
+        <div class="eyebrow">Honest by default</div>
+        <h2>It tells you when a result shouldn't be trusted.</h2>
+        <p class="lede">Most dashboards will happily report a 1,780% jump caused by one typo. These checks run on every upload, before any chart is drawn.</p>
+      </div>
+      <div class="cards">
+        <div class="card"><h3>One row dominating</h3><p>If a single value is more than a fifth of a total, headline totals, trends and segment shares are marked low-confidence and the row is surfaced first.</p><div class="ex">"One row makes up 58% of all revenue"</div></div>
+        <div class="card"><h3>Impossible values</h3><p>Negative prices, quantities, ages or durations are caught, counted in the health score and blanked (not deleted) with one click.</p><div class="ex">"1 impossible negative value in delivery_days"</div></div>
+        <div class="card"><h3>Outliers in skewed data</h3><p>Money and counts are skewed, so a plain IQR rule flags hundreds of normal sales. Skewed columns are also checked on a log scale to isolate the real anomaly.</p><div class="ex">"1 extreme outlier in revenue (max 48,250 vs median 45.9)"</div></div>
+        <div class="card"><h3>Trends that aren't trends</h3><p>A higher second half is not called growth unless the linear trend is statistically significant. The wording says so.</p><div class="ex">"higher in the second half (24.5%), but no clear trend"</div></div>
+        <div class="card"><h3>Forecasts with real uncertainty</h3><p>Prediction intervals are never narrower than the model's own error on held-out months, and never go below zero for quantities that can't.</p><div class="ex">"Jan 2026: $4,920 (80% interval $2,579–$7,262)"</div></div>
+        <div class="card"><h3>Segments that aren't segments</h3><p>Clustering rejects solutions where a group is a handful of unusual rows, and says "no clear segments" instead of inventing personas.</p><div class="ex">k-means on winsorised features, minimum group size</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tour">
+    <div class="wrap">
+      <div class="head">
+        <div class="eyebrow">Tour</div>
+        <h2>Upload, clean, analyse, ask, report.</h2>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Screens">
+        <button role="tab" aria-selected="true" aria-controls="shot" data-i="0">Discover</button>
+        <button role="tab" aria-selected="false" aria-controls="shot" data-i="1">Clean</button>
+        <button role="tab" aria-selected="false" aria-controls="shot" data-i="2">Ask</button>
+        <button role="tab" aria-selected="false" aria-controls="shot" data-i="3">Analyse</button>
+        <button role="tab" aria-selected="false" aria-controls="shot" data-i="4">Dashboard</button>
+        <button role="tab" aria-selected="false" aria-controls="shot" data-i="5">Report</button>
+      </div>
+      <div class="frame" style="margin-top:0" id="shot" role="tabpanel" aria-live="polite">
+        <div class="bar"><i></i><i></i><i></i><span id="shot-url">Discover</span></div>
+        <img id="shot-img" src="assets/discover.webp" width="1600" height="1000" alt="">
+      </div>
+      <p class="shot-cap" id="shot-cap"></p>
+      <div class="mobile">
+        <div class="phone"><img src="assets/mobile-overview.webp" width="780" height="1688" alt="The Overview screen on a phone." loading="lazy"></div>
+        <div class="phone"><img src="assets/mobile-discover.webp" width="780" height="1688" alt="The Discover screen on a phone." loading="lazy"></div>
+        <div class="txt"><h3 style="margin-bottom:10px">Works on a phone</h3><p class="muted">Every screen reflows to a single column, the workspace navigation becomes a scrolling tab bar, and the question box stays within thumb reach.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="features">
+    <div class="wrap">
+      <div class="head"><div class="eyebrow">What's inside</div><h2>Built for research data, surveys and business data.</h2></div>
+      <div class="feat">
+        <div><h3><svg aria-hidden="true"><use href="#i-wand"/></svg>Profile and clean</h3><ul><li>Type detection for numbers, dates, currencies (incl. € and decimal commas), IDs and Likert scales</li><li>0–100 health score with explained issues</li><li>14 replayable cleaning steps with preview, undo and lineage</li></ul></div>
+        <div><h3><svg aria-hidden="true"><use href="#i-flask"/></svg>Statistics</h3><ul><li>Welch and paired t-tests, ANOVA, chi-square, Mann–Whitney, Kruskal–Wallis</li><li>OLS regression with coefficients, p-values and R²; correlations with confidence intervals</li><li>Forecasting with holdout model selection, k-means, PCA, Cronbach's α</li></ul></div>
+        <div><h3><svg aria-hidden="true"><use href="#i-chart"/></svg>Charts</h3><ul><li>18 chart types from a builder or a sentence ("monthly revenue by region")</li><li>A chart validator that flags poor choices and suggests a fix</li><li>Dashboards with shared filters; PNG and SVG export</li></ul></div>
+        <div><h3><svg aria-hidden="true"><use href="#i-chat"/></svg>Ask</h3><ul><li>Questions answered with the same verified analyses</li><li>"Why", "what changed in December" and ranking questions routed to drivers, change decomposition and averages</li><li>Follow-ups and "explain it like…" rewrites</li></ul></div>
+        <div><h3><svg aria-hidden="true"><use href="#i-doc"/></svg>Reports</h3><ul><li>Five styles: executive, academic, technical, student, marketing</li><li>Export to HTML, PDF and Markdown</li><li>Every chart carries the calculation that produced it</li></ul></div>
+        <div><h3><svg aria-hidden="true"><use href="#i-code"/></svg>Reproducible</h3><ul><li>Clean data to CSV, Excel or JSON</li><li>A pandas script and an R script that replay every cleaning step on the original file</li><li>The Python script reproduces the app's cleaned output exactly on all 11 files in our test set</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <div class="wrap">
+      <div class="head"><div class="eyebrow">Architecture</div><h2>Rows stay in the browser.</h2><p class="lede">The analysis engine runs client-side. The server only ever sees a column summary and computed results, which is what the AI needs to plan and explain.</p></div>
+      <div class="arch">
+        <div class="node"><div class="t">Browser</div><div class="s">vanilla JS · Plotly</div><ul><li>File readers, type inference</li><li>Cleaning, statistics, charts</li><li>Validator (JS copy)</li></ul></div>
+        <div class="link"><svg viewBox="0 0 40 16" aria-hidden="true"><path d="M2 8h34M30 3l6 5-6 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>schema +<br>results</div>
+        <div class="node"><div class="t">Next.js</div><div class="s">apps/web</div><ul><li>Serves the workspace</li><li>Proxies AI and file conversion</li><li>Keys stay server-side; CSP headers</li></ul></div>
+        <div class="link"><svg viewBox="0 0 40 16" aria-hidden="true"><path d="M2 8h34M30 3l6 5-6 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>/ai/plan<br>/ai/explain</div>
+        <div class="node"><div class="t">FastAPI</div><div class="s">services/api · pandas · SciPy</div><ul><li>AI router (Claude / GPT) with fallback</li><li>Number verifier and repair round</li><li>SPSS, Stata, SAS, Parquet conversion</li></ul></div>
+      </div>
+      <p class="data-note"><svg aria-hidden="true"><use href="#i-lock"/></svg><span>File contents are treated as untrusted data in every prompt, so instructions hidden inside a spreadsheet cell are not followed.</span></p>
+    </div>
+  </section>
+
+  <section class="alt" id="status">
+    <div class="wrap">
+      <div class="head"><div class="eyebrow">Status</div><h2>What works today, and what's next.</h2></div>
+      <div class="status">
+        <div class="card"><span class="pill done">Live</span><ul><li>Upload of 20+ formats, including ZIP bundles and Google Forms exports</li><li>Profiling, health score, cleaning with lineage, Python/R export</li><li>15 analyses, 18 chart types, dashboards, five report styles</li><li>Ask with validated answers; built-in engine when no AI key is set</li><li>Mobile layout, dark mode; API tests and an evaluation harness</li></ul></div>
+        <div class="card"><span class="pill next">Next</span><ul><li>Saved projects and version history (Postgres schema is in the repo)</li><li>Sign-in, public share links and embeddable charts</li><li>DOCX and PPTX report export</li><li>Google Sheets, Drive and database connectors</li><li>Larger-than-memory files processed on the server</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap closing">
+    <h2>Try it with your own data, or one of the samples.</h2>
+    <p class="muted" style="margin-bottom:6px">No sign-up. Files are read in your browser.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://explain-your-data.onrender.com" rel="noopener">Launch the live app <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+      <a class="btn" href="https://github.com/Pathik0007/explain-data"><svg aria-hidden="true"><use href="#i-gh"/></svg> Source on GitHub</a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Explain Your Data · built by <a href="https://github.com/Pathik0007">Pathik Ahmed</a></span>
+    <span><a href="https://explain-your-data.onrender.com">Live app</a> · <a href="https://github.com/Pathik0007/explain-data">GitHub</a> · <a href="https://github.com/Pathik0007/explain-data#readme">README</a></span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var shots = [
+    ['discover', 'Discover', 'Discover ranks what stands out by strength of evidence: trends, anomalies, segments and relationships. Each finding opens to its chart and the exact calculation behind it.'],
+    ['clean', 'Clean', 'A messy test file: duplicates, inconsistent labels, a $48,250 typo, a negative delivery time and missing ratings. Every fix can be previewed, undone and exported as code.'],
+    ['ask', 'Ask', '"What drives revenue?" answered with a regression run on all 3,532 rows: R², significant predictors and a fitted-versus-actual chart, with follow-up questions.'],
+    ['analyze', 'Analyse', 'A six-month forecast chosen by testing several models on held-out months, with an 80% interval that widens honestly over time.'],
+    ['dashboard', 'Dashboard', 'Dashboards build themselves from the strongest findings. A shared filter applies to every card.'],
+    ['report', 'Report', 'Reports collect findings with their charts and statistics, in one of five styles, and export to HTML, PDF or Markdown.']
+  ];
+  var tabs = document.querySelectorAll('.tabs button'), img = document.getElementById('shot-img'), cap = document.getElementById('shot-cap'), url = document.getElementById('shot-url');
+  function show(i) {
+    var s = shots[i]; img.src = 'assets/' + s[0] + '.webp'; img.alt = s[2]; cap.textContent = s[2]; url.textContent = 'explain-your-data.onrender.com · ' + s[1];
+    tabs.forEach(function (t, k) { t.setAttribute('aria-selected', k === i ? 'true' : 'false'); t.tabIndex = k === i ? 0 : -1; });
+  }
+  tabs.forEach(function (t, k) {
+    t.addEventListener('click', function () { show(k); });
+    t.addEventListener('keydown', function (e) { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { var n = (k + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length; show(n); tabs[n].focus(); } });
+  });
+  show(0);
+  shots.forEach(function (s) { var p = new Image(); p.src = 'assets/' + s[0] + '.webp'; });
+})();
+</script>
+</body>
+</html>

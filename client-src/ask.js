@@ -144,6 +144,26 @@
   }
   E.makeTools = makeTools;
 
+
+  /* ---------- number check (same rules as services/api/app/ai/verify.py) ---------- */
+  const NUM_RE = /(?<![\w.])[-−]?[$€£¥₹৳]?\d(?:[\d,]*\d)?(?:\.\d+)?\s?(?:%|[kKmMbB](?![a-zA-Z]))?/g;
+  const toF = (tok) => { let t = tok.trim().replace('−', '-').replace(/[$€£¥₹৳,\s]/g, ''); const pct = t.endsWith('%'); t = t.replace(/%$/, ''); let sc = 1; const l = t.slice(-1).toLowerCase(); if ({ k: 1, m: 1, b: 1 }[l]) { sc = { k: 1e3, m: 1e6, b: 1e9 }[l]; t = t.slice(0, -1); } const v = parseFloat(t); return isFinite(v) ? [v * sc, pct] : null; };
+  E.numbersIn = function (o, out = []) {
+    if (o == null || typeof o === 'boolean') return out;
+    if (typeof o === 'number') { if (isFinite(o)) out.push(o); return out; }
+    if (typeof o === 'string') { for (const tok of o.match(NUM_RE) || []) { const v = toF(tok); if (v) out.push(v[0]); } return out; }
+    if (Array.isArray(o)) { o.forEach((x) => E.numbersIn(x, out)); return out; }
+    if (typeof o === 'object') { Object.values(o).forEach((x) => E.numbersIn(x, out)); }
+    return out;
+  };
+  E.unverifiedNumbers = function (answer, results, question) {
+    const known = E.numbersIn(results).concat(E.numbersIn(question || ''), Array.from({ length: 13 }, (_, i) => i));
+    const ok = (v, pct) => [v].concat(pct ? [v / 100] : []).flatMap((c) => [c, -c]).some((c) => known.some((k) => k === c || Math.abs(k - c) <= Math.max(Math.max(Math.abs(k), Math.abs(c)) * 0.011, Math.abs(c) < 10 ? 0.051 : 0.51)));
+    const bad = [];
+    for (const tok of String(answer || '').match(NUM_RE) || []) { if (/^(19|20)\d\d$/.test(tok.trim())) continue; const v = toF(tok); if (v && !ok(v[0], v[1])) bad.push(tok.trim()); }
+    return [...new Set(bad)];
+  };
+
   E.askClaude = async function (ds, question, history, opts = {}) {
     const sample = await E.getCap('sample');
     if (!sample) return null;
@@ -168,7 +188,8 @@ ${E.schemaForClaude(ds)}`;
     const res = await sample.json(turns, { tools, signal: opts.signal, modelTier: opts.modelTier || 'default' });
     const show = (Array.isArray(res.show) ? res.show : []).map(String).filter((id) => blocks[id]);
     const chosen = (show.length ? show : Object.keys(blocks).slice(-2)).slice(0, 3).map((id) => blocks[id]);
-    return { engine: 'claude', text: String(res.answer || ''), blocks: chosen, followups: Array.isArray(res.followups) ? res.followups.slice(0, 4).map(String) : [], plan: calls.map((c) => (c.tool === 'aggregate' ? `aggregate(${JSON.stringify(c.params)})` : c.tool === 'make_chart' ? `make_chart(${c.params.type}: ${c.params.title})` : `${c.tool}(${JSON.stringify(c.params)})`)) };
+    const allResults = Object.values(blocks).map((b) => ({ title: b.title, summary: b.summary, stats: b.stats, table: b.table && { columns: b.table.columns, rows: b.table.rows } }));
+    return { engine: 'claude', unverified: E.unverifiedNumbers(res.answer, allResults, question), text: String(res.answer || ''), blocks: chosen, followups: Array.isArray(res.followups) ? res.followups.slice(0, 4).map(String) : [], plan: calls.map((c) => (c.tool === 'aggregate' ? `aggregate(${JSON.stringify(c.params)})` : c.tool === 'make_chart' ? `make_chart(${c.params.type}: ${c.params.title})` : `${c.tool}(${JSON.stringify(c.params)})`)) };
   };
 
 
@@ -180,7 +201,7 @@ ${E.schemaForClaude(ds)}`;
     const put = (b) => { const id = 'r' + ++k; blocks[id] = b; return id; };
     const brief = (b, id) => ({ id, title: b.title, summary: b.summary, stats: b.stats || undefined, table: b.table ? { columns: b.table.columns, rows: b.table.rows.slice(0, 20) } : undefined });
     const tools = makeTools(ds, opts, put, calls, brief);
-    const post = async (path, body) => { const r = await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: opts.signal }); if (!r.ok) throw { code: r.status === 429 ? 'rate_limited' : r.status === 503 ? 'sampling_disabled' : 'upstream_error', message: await r.text() }; return r.json(); };
+    const post = async (path, body) => { const r = await E.slowFetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, opts); if (!r.ok) throw { code: r.status === 429 ? 'rate_limited' : r.status === 503 ? 'sampling_disabled' : 'upstream_error', message: await r.text() }; return r.json(); };
     const schema = E.schemaForClaude(ds);
     opts.onStatus && opts.onStatus('Planning the analysis…');
     const plan = await post('/ai/plan', { question, schema, history: history || [], tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema })) });
@@ -194,9 +215,29 @@ ${E.schemaForClaude(ds)}`;
     const show = (fin.show || []).map(String).filter((id) => blocks[id]);
     return { engine: 'server', text: String(fin.answer || ''), blocks: (show.length ? show : Object.keys(blocks).slice(-2)).slice(0, 3).map((id) => blocks[id]), followups: (fin.followups || []).slice(0, 4).map(String), plan: calls.map((c) => `${c.tool}(${JSON.stringify(c.params)})`), unverified: fin.unverified || [] };
   };
+  // fetch with a time limit and a "waking up" status: free hosting sleeps when idle and can take ~50 s to start
+  E.slowFetch = async function (url, init, opts = {}) {
+    const ctl = new AbortController(); const outer = opts.signal; if (outer) { if (outer.aborted) ctl.abort(); else outer.addEventListener('abort', () => ctl.abort(), { once: true }); }
+    const slow = setTimeout(() => opts.onStatus && opts.onStatus('Waking the AI server (free hosting can take up to a minute)…'), 5000);
+    const kill = setTimeout(() => { ctl.timedOut = true; ctl.abort(); }, opts.timeout || 100000);
+    try { return await fetch(url, Object.assign({}, init, { signal: ctl.signal })); }
+    catch (e) { if (ctl.timedOut) throw { code: 'timeout', message: 'The AI server did not answer in time.' }; if (outer && outer.aborted) throw { code: 'cancelled' }; throw { code: 'network', message: e.message }; }
+    finally { clearTimeout(slow); clearTimeout(kill); }
+  };
+  // deployed build: only offer AI when the API reports at least one configured provider
+  E.serverStatus = null;
+  E.serverAI = async function () {
+    const base = E.apiBase();
+    try {
+      const r = await E.slowFetch(base + '/health', { cache: 'no-store' }, { timeout: 90000 });
+      const d = await r.json(); const ai = d && d.api && d.api.ai;
+      E.serverStatus = { api: d && d.api && d.api.ok ? 'up' : 'down', ai: !!(ai && Object.values(ai).some((x) => Array.isArray(x) && x.length)) };
+      return E.serverStatus.ai ? E.serverSample(base) : null;
+    } catch (e) { E.serverStatus = { api: 'down', ai: false }; return null; }
+  };
   E.serverSample = function (base) {
     const call = async (input, opts = {}, json = false) => {
-      const r = await fetch(base + '/ai/complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ input, json, tier: opts.modelTier || 'default' }), signal: opts.signal });
+      const r = await E.slowFetch(base + '/ai/complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ input, json, tier: opts.modelTier || 'default' }) }, opts);
       if (!r.ok) throw { code: r.status === 429 ? 'rate_limited' : r.status === 503 ? 'sampling_disabled' : 'upstream_error', message: await r.text() };
       const d = await r.json(); if (opts.onText && d.text) opts.onText({ text: d.text, delta: d.text }); return d;
     };

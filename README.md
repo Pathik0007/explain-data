@@ -2,6 +2,10 @@
 
 Upload any data. Ask it anything. Clean → Understand → Analyze → Visualize → Explain → Report → Share.
 
+**Live app:** https://explain-your-data.onrender.com (free hosting; the first load can take up to a minute)
+
+**Project page:** https://pathik0007.github.io/explain-data/
+
 **Core principle:** LLMs decide *what* analysis should happen. Deterministic code (JavaScript in the browser, pandas/SciPy/statsmodels on the server) performs it. A validator checks the numbers. Then the LLM explains the verified result. The model is never allowed to invent a figure: `/ai/explain` rejects answers containing numbers that are not in the computed results, asks the model to repair the answer once, and flags anything that still doesn't match.
 
 ## What's in this repo
@@ -19,9 +23,10 @@ client-src/          The analysis workspace (vanilla JS, no build step). Runs en
 apps/web/            Next.js: serves the workspace, proxies AI + conversion to the API (keys stay server-side), security headers
 services/api/        FastAPI: AI router (GPT / Claude Sonnet / Claude Opus), number verifier, pandas engine, sandbox, worker, storage, auth
   app/db/schema.sql  Postgres schema (projects, datasets, lineage versions, conversations, jobs, reports, usage, subscriptions)
-  tests/             pytest: engine accuracy, number verification, sandbox safety, API contracts (12 tests)
+  tests/             pytest: engine accuracy, number verification, sandbox safety, API contracts (17 tests)
   evals/             golden-question harness + the three sample datasets as CSV
 scripts/build_client.py   bundles client-src into apps/web/public/app.html (or a single-file artifact)
+docs/                     GitHub Pages project page (screenshots, architecture, validator); not a copy of the app
 ```
 
 ## Run locally
@@ -37,7 +42,7 @@ Without Docker:
 ```bash
 cd services/api && pip install -r requirements.txt && uvicorn app.main:app --reload     # :8000
 cd apps/web && npm install && API_URL=http://localhost:8000 npm run dev                   # :3000
-cd services/api && pytest -q                                                              # 12 passed
+cd services/api && pytest -q                                                              # 17 passed
 ```
 
 With no AI keys the app still works: the AI endpoints return 503 and the browser falls back to its built-in engine.
@@ -53,6 +58,10 @@ With no AI keys the app still works: the AI endpoints return 503 and the browser
 | Files | Cloudflare R2 | `S3_BUCKET`, `S3_ENDPOINT`, keys. No egress fees. |
 | Code sandbox | E2B / Modal / Daytona | Keep `ENABLE_SANDBOX=0` on the web API; run Pro-mode code only on an isolated host. |
 | Billing | Stripe | Tables `usage` and `subscriptions` are ready; meter credits per `kind`. |
+
+### GitHub Pages (project page)
+
+Settings → Pages → Build and deployment: Source **Deploy from a branch**, Branch **main**, folder **/docs**. The page is published at `https://pathik0007.github.io/explain-data/` and links to the live app.
 
 ### Render (Blueprint)
 

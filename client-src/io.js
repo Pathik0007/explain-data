@@ -46,22 +46,41 @@
     return best;
   }
   function fromAOA(aoa, meta) {
-    aoa = aoa.filter((r) => r && r.some((v) => v != null && String(v).trim() !== ''));
+    const physical = []; aoa = aoa.filter((r, i) => { const k = r && r.some((v) => v != null && String(v).trim() !== ''); if (k) physical.push(i); return k; });
     if (aoa.length < 2) return null;
     const h = headerRowIndex(aoa);
     const width = Math.max(...aoa.map((r) => r.length));
     const headers = Array.from({ length: width }, (_, j) => aoa[h][j]);
     // drop completely empty columns
     const keep = headers.map((_, j) => aoa.slice(h).some((r) => r[j] != null && String(r[j]).trim() !== ''));
-    const rows = aoa.slice(h + 1).map((r) => headers.map((_, j) => r[j]).filter((_, j) => keep[j]));
-    return E.makeDataset({ ...meta, headers: headers.filter((_, j) => keep[j]), rows });
+    let rows = aoa.slice(h + 1).map((r) => headers.map((_, j) => r[j]).filter((_, j) => keep[j]));
+    const hk = headers.filter((_, j) => keep[j]); const hs = hk.map((x) => String(x == null ? '' : x).trim());
+    const before = rows.length; rows = rows.filter((r) => !r.every((v, j) => String(v == null ? '' : v).trim() === hs[j])); // header repeated inside the data (concatenated exports)
+    if (!rows.length) return null;
+    const d = E.makeDataset({ ...meta, headers: hk, rows });
+    if (d) d.headerRow = physical[h] || 0; // index in the original sheet, for the exported scripts
+    if (d && before > rows.length) d.removedHeaderRows = before - rows.length;
+    if (d && before > rows.length) d.note = `Removed ${before - rows.length} row${before - rows.length > 1 ? 's' : ''} that repeated the header.`;
+    return d;
   }
   E.fromAOA = fromAOA;
 
+  function looksBinary(t) {
+    const s = t.slice(0, 8000); if (!s) return false; let bad = 0;
+    for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 0xfffd || c === 0 || (c < 32 && c !== 9 && c !== 10 && c !== 13 && c !== 12)) bad++; }
+    return bad / s.length > 0.02;
+  }
+  E.looksBinary = looksBinary;
   async function parseDelimited(text, meta, delimiter) {
+    const t = text.replace(/^\ufeff/, '');
+    if (!t.trim()) throw new Error(`${meta.name} is empty.`);
+    if (looksBinary(t)) throw new Error(`${meta.name} doesn't look like a text table (it contains binary data). If it's a spreadsheet, save it as .xlsx or .csv and try again.`);
     await E.need('papaparse');
-    const res = window.Papa.parse(text.replace(/^﻿/, ''), { delimiter: delimiter || '', skipEmptyLines: 'greedy', dynamicTyping: false });
-    return fromAOA(res.data, meta);
+    const res = window.Papa.parse(t, { delimiter: delimiter || '', skipEmptyLines: 'greedy', dynamicTyping: false });
+    const ds = fromAOA(res.data, meta);
+    if (ds) ds.delimiter = res.meta && res.meta.delimiter;
+    if (!ds) throw new Error(res.data.length === 1 ? `${meta.name} has column names but no data rows.` : `${meta.name} has no rows of data.`);
+    return ds;
   }
 
   function flatten(obj, prefix, out) {
@@ -163,7 +182,7 @@
       const wb = window.XLSX.read(await getBuf(), { type: 'array', cellDates: true, dense: false });
       const out = [];
       for (const sn of wb.SheetNames) {
-        const aoa = window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: false });
+        const aoa = window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: true });
         const ds = fromAOA(aoa, { ...meta, name: wb.SheetNames.length > 1 ? name + ' › ' + sn : name, sheet: sn });
         if (ds && ds.n) out.push(ds);
       }
@@ -243,7 +262,7 @@
   E.getCap = function (name) {
     if (!caps[name]) {
       const viewer = window.claude && typeof window.claude.use === 'function' ? Promise.resolve(window.claude.use(name)).catch(() => null) : Promise.resolve(null);
-      caps[name] = viewer.then((c) => (c || name !== 'sample' || !E.apiBase || !E.apiBase() ? c : E.serverSample(E.apiBase())));
+      caps[name] = viewer.then((c) => (c || name !== 'sample' || !E.apiBase || !E.apiBase() ? c : E.serverAI()));
     }
     return caps[name];
   };

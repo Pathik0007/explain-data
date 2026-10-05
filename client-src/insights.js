@@ -77,7 +77,7 @@
         const rec = p.type === 'text' || p.type === 'id' ? null : { op: 'fill_missing', params: { col: p.name, method }, label: `Fill with ${method === 'ffill' ? 'previous value' : method}` };
         issues.push({ id: 'miss_' + p.name, col: p.name, severity: p.missingPct > 0.2 ? 'critical' : p.missingPct > 0.05 ? 'warning' : 'info', title: `${p.missing.toLocaleString()} missing in ${p.name}`, detail: `${fmt.pct(p.missingPct)} of rows are blank.${rec ? ` Recommended: ${rec.label.toLowerCase()}${method === 'median' ? ' (the column is skewed, so the median is more robust)' : ''}.` : ''}`, fix: rec, alt: { op: 'drop_missing', params: { cols: [p.name] }, label: 'Remove those rows' } });
       }
-      if (p.missingPct >= 0.95) issues.push({ id: 'empty_' + p.name, col: p.name, severity: 'warning', title: `${p.name} is almost empty`, detail: `${fmt.pct(p.missingPct)} missing. It adds little to any analysis.`, fix: { op: 'drop_column', params: { col: p.name }, label: 'Remove column' } });
+      if (p.missingPct >= 0.95) issues.push({ id: 'empty_' + p.name, col: p.name, severity: 'warning', title: p.missingPct >= 1 ? `${p.name} is empty` : `${p.name} is almost empty`, detail: p.missingPct >= 1 ? 'Every value is blank. It adds nothing to any analysis.' : `${fmt.pct(p.missingPct)} missing. It adds little to any analysis.`, fix: { op: 'drop_column', params: { col: p.name }, label: 'Remove column' } });
       if (p.invalid) issues.push({ id: 'inv_' + p.name, col: p.name, severity: p.invalid / n > 0.02 ? 'warning' : 'info', title: `${p.invalid} invalid ${p.type === 'date' ? 'dates' : 'values'} in ${p.name}`, detail: `Could not read: ${p.invalidExamples.slice(0, 3).map((x) => '"' + x + '"').join(', ')}. They are treated as missing.`, fix: null });
       if (p.inconsistent && p.inconsistent.length) { const ex = p.inconsistent[0]; issues.push({ id: 'inc_' + p.name, col: p.name, severity: 'warning', title: `Inconsistent labels in ${p.name}`, detail: `${p.inconsistent.length} value${p.inconsistent.length > 1 ? 's are' : ' is'} spelled more than one way, e.g. ${ex.map(([v]) => '"' + v + '"').join(' / ')}.`, fix: { op: 'text_clean', params: { col: p.name, fn: 'standardize' }, label: 'Standardise labels' } }); }
       else if (p.whitespace) issues.push({ id: 'ws_' + p.name, col: p.name, severity: 'info', title: `Extra spaces in ${p.name}`, detail: `${p.whitespace} values have leading or trailing spaces.`, fix: { op: 'text_clean', params: { col: p.name, fn: 'trim' }, label: 'Trim spaces' } });
@@ -115,6 +115,7 @@
     const likert = cols.filter((c) => c.likert).map((c) => c.name);
     const isSurvey = likert.length >= 2 || (cols.some((c) => /timestamp/i.test(c.name)) && cols.filter((c) => c.name.length > 30).length >= 2);
 
+    const SEV = { critical: 0, warning: 1, info: 2 }; issues.forEach((x, i) => (x._o = i)); issues.sort((x, y) => (SEV[x.severity] ?? 3) - (SEV[y.severity] ?? 3) || x._o - y._o);
     const prof = { rev: ds.rev, n, ncols: cols.length, cells, missingCells, missingPct: missingCells / cells, dup, invalidCells, cols: colProfiles, health, issues, measure: measure && measure.name, dateCol: dateCol && dateCol.name, dims, numeric: numeric.map((c) => c.name), likert, isSurvey, typeCounts: cols.reduce((m, c) => ((m[c.type] = (m[c.type] || 0) + 1), m), {}) };
     ds._profile = prof;
     return prof;
@@ -133,7 +134,9 @@
         if (rows.length >= 4) {
           const half = Math.floor(rows.length / 2); const a = rows.slice(0, half).map((r) => r[1]), b = rows.slice(rows.length - half).map((r) => r[1]);
           const sa = agg === 'sum' ? S.sum(a) : S.mean(a), sb = agg === 'sum' ? S.sum(b) : S.mean(b);
-          if (sa) { k.delta = sb / sa - 1; k.deltaLabel = 'second half vs first half'; }
+          let mx = 0, tot = 0; if (agg === 'sum') for (const x of v) { if (x > 0) { tot += x; if (x > mx) mx = x; } }
+          if (sa && !(tot > 0 && mx / tot > 0.2 && p.n >= 30)) { k.delta = sb / sa - 1; k.deltaLabel = 'second half vs first half'; }
+          else if (sa) k.deltaLabel = `one row is ${fmt.pct(mx / tot, 0)} of the total; no trend shown`;
           k.spark = rows.map((r) => r[1]);
         }
       }
@@ -267,6 +270,7 @@
       out.push({ id: 'quality', kind: 'Quality', title: `${p.issues.length} data quality issue${p.issues.length === 1 ? '' : 's'} to review`, body: `Health score ${p.health.score}/100. Most important: ${top.join('; ')}. Fixing these first makes every other result more reliable.`, confidence: 'High', score: p.health.score < 85 ? 75 : 40, chart: null, action: 'clean', code: { py: 'df.isna().sum()\ndf.duplicated().sum()', r: 'colSums(is.na(df))\nsum(duplicated(df))' }, evidence: p.issues.slice(0, 5).map((i) => i.title) });
     }
 
+    out.forEach((i) => { const mm = /^(share_|anova_)(.+)$/.exec(i.id || ''); if (!mm) return; const dp = p.cols.find((c) => c.name === mm[2]); if (dp && ((dp.inconsistent && dp.inconsistent.length) || dp.whitespace)) { i.body += ` Note: some ${nice(mm[2])} labels are spelled more than one way, so these groups are split; standardise them in Clean for accurate figures.`; if (i.confidence === 'High') i.confidence = 'Medium'; i.score -= 10; } });
     if (dom) {
       out.forEach((i) => { if (['trend', 'spike', 'streak'].includes(i.id) || /^(share_|anova_)/.test(i.id)) { i.body += domNote; i.confidence = 'Low'; i.score -= 30; } });
       out.push({ id: 'dominant', kind: 'Anomaly', title: `One row makes up ${fmt.pct(dom.share, 0)} of all ${mName}`, body: `The largest single value (${fm(dom.value)}) is ${fmt.pct(dom.share, 0)} of the ${fm(dom.tot)} total. Totals, trends and segment shares are dominated by it. Check whether it is real or a data-entry error before trusting them.`, confidence: 'High', score: 96, chart: { type: 'histogram', x: m.name, title: `Distribution of ${mName}` }, action: 'clean', code: { py: `df.nlargest(5, ${E.pyStr(m.name)})`, r: `df %>% arrange(desc(${E.rName(m.name)})) %>% head(5)` }, evidence: [`Largest value ${fm(dom.value)} ÷ total ${fm(dom.tot)} = ${fmt.pct(dom.share)}`] });

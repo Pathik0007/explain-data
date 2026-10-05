@@ -30,7 +30,7 @@
       else if (a >= 1e6) s = (v / 1e6).toFixed(a >= 1e7 ? 1 : 2) + 'M';
       else if (a >= 1e4) s = (v / 1e3).toFixed(a >= 1e5 ? 0 : 1) + 'K';
       else s = E.fmt.num(v);
-      if (unit === '$') return (v < 0 ? '-$' : '$') + s.replace('-', '');
+      if (unit && unit !== '%') return (v < 0 ? '-' + unit : unit) + s.replace('-', '');
       if (unit === '%') return s + '%';
       return s;
     },
@@ -75,7 +75,7 @@
   const MISSING = new Set(['', 'na', 'n/a', 'null', 'none', '-', '—', '?', 'nan', '#n/a', 'nil', 'missing', 'undefined', '#value!', '#div/0!']);
   E.isMissingToken = (v) => v == null || (typeof v === 'string' && MISSING.has(v.trim().toLowerCase())) || (typeof v === 'number' && isNaN(v));
 
-  E.parseNum = function (s) {
+  E.parseNum = function (s, decimalComma) {
     if (typeof s === 'number') return isFinite(s) ? s : NaN;
     if (typeof s === 'boolean') return NaN;
     if (s == null) return null;
@@ -88,7 +88,8 @@
     t = t.replace(/[$€£¥₹৳]$/, '');
     if (/%$/.test(t)) t = t.slice(0, -1);
     t = t.replace(/[\s\u00a0]/g, '');
-    if (/^[-+]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) t = t.replace(/,/g, '');
+    if (decimalComma) { if (/^[-+]?\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) t = t.replace(/\./g, '').replace(',', '.'); else if (/^[-+]?\d*,\d+$/.test(t)) t = t.replace(',', '.'); }
+    else if (/^[-+]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) t = t.replace(/,/g, '');
     if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t)) return NaN;
     let v = parseFloat(t);
     return neg ? -v : v;
@@ -176,15 +177,16 @@
     if (ne === 0) { col.type = 'category'; col.empty = true; return col; }
 
     const sampleIdx = nonEmptyIdx.length > 3000 ? nonEmptyIdx.filter((_, k) => k % Math.ceil(nonEmptyIdx.length / 3000) === 0) : nonEmptyIdx;
-    let numOk = 0, dateOk = 0, allJsNum = true, anyDateObj = false, dmyVotes = 0, mdyVotes = 0, hasTime = false, curr = 0, pct = 0;
+    let numOk = 0, numDc = 0, dateOk = 0, allJsNum = true, anyDateObj = false, dmyVotes = 0, mdyVotes = 0, hasTime = false, curr = 0, pct = 0; const sym = {};
     for (const i of sampleIdx) {
       const v = vals[i];
       if (typeof v !== 'number') allJsNum = false;
       if (v instanceof Date) anyDateObj = true;
       const pn = E.parseNum(v);
       if (E.isNum(pn)) numOk++;
+      if (E.isNum(E.parseNum(v, true))) numDc++;
       if (typeof v === 'string') {
-        if (/^[-(]?[$€£¥₹৳]/.test(v)) curr++;
+        const sm = v.match(/^[-(]?([$€£¥₹৳])/) || v.match(/([$€£¥₹৳])\)?$/); if (sm) { curr++; sym[sm[1]] = (sym[sm[1]] || 0) + 1; }
         if (/%$/.test(v)) pct++;
         const m = v.match(/^(\d{1,2})[-/.](\d{1,2})[-/.]\d{2,4}/);
         if (m) { if (+m[1] > 12) dmyVotes++; if (+m[2] > 12) mdyVotes++; }
@@ -196,13 +198,16 @@
     const sn = sampleIdx.length;
     const order = mdyVotes > dmyVotes ? 'mdy' : 'dmy';
 
-    if ((numOk / sn >= 0.9 || allJsNum) && !(DATE_NAME.test(name) && dateOk / sn > 0.5)) {
-      col.type = 'number';
-      if (curr / sn > 0.3 || /(revenue|sales|price|cost|amount|profit|income|spend|salary|\$|aud|usd|fee|value_aud|budget)/i.test(name)) col.unit = '$';
+    const dc = numOk / sn < 0.9 && numDc / sn >= 0.9; // European decimal commas: 1.234,56
+    if ((numOk / sn >= 0.9 || allJsNum || dc) && !(DATE_NAME.test(name) && dateOk / sn > 0.5)) {
+      col.type = 'number'; if (dc) col.decimalComma = true;
+      const topSym = Object.entries(sym).sort((a, b) => b[1] - a[1])[0];
+      if (curr / sn > 0.3) col.unit = topSym ? topSym[0] : '$';
+      else if (/(revenue|sales|price|cost|amount|profit|income|spend|salary|\$|aud|usd|fee|value_aud|budget)/i.test(name)) col.unit = /eur|€/i.test(name) ? '€' : /gbp|£/i.test(name) ? '£' : '$';
       else if (pct / sn > 0.3 || /(percent|pct|rate_%|%)/i.test(name)) col.unit = '%';
       for (let i = 0; i < n; i++) {
         if (vals[i] == null) continue;
-        const pn = E.parseNum(vals[i]);
+        const pn = E.parseNum(vals[i], dc);
         if (E.isNum(pn)) vals[i] = pn;
         else { col.invalid++; if (col.invalidExamples.length < 5) col.invalidExamples.push(String(vals[i])); vals[i] = null; }
       }
@@ -329,22 +334,22 @@
       }
       const col = E.pyStr(p.col), rc = E.rName(p.col);
       const py = {
-        mean: `df[${col}] = df[${col}].fillna(df[${col}].mean())`,
-        median: `df[${col}] = df[${col}].fillna(df[${col}].median())`,
+        mean: `df[${col}] = df[${col}].fillna(round(df[${col}].mean(), 2))`,
+        median: `df[${col}] = df[${col}].fillna(round(df[${col}].median(), 2))`,
         mode: `df[${col}] = df[${col}].fillna(df[${col}].mode()[0])`,
         ffill: `df[${col}] = df[${col}].ffill()`,
         bfill: `df[${col}] = df[${col}].bfill()`,
         interpolate: `df[${col}] = df[${col}].interpolate()`,
-        value: `df[${col}] = df[${col}].fillna(${E.pyStr(p.value)})`,
+        value: `df[${col}] = df[${col}].fillna(${c.type === 'number' && E.isNum(E.parseNum(p.value)) ? E.parseNum(p.value) : E.pyStr(p.value)})`,
       }[p.method];
       const r = {
-        mean: `df <- df %>% mutate(${rc} = replace_na(${rc}, mean(${rc}, na.rm = TRUE)))`,
-        median: `df <- df %>% mutate(${rc} = replace_na(${rc}, median(${rc}, na.rm = TRUE)))`,
-        mode: `df <- df %>% mutate(${rc} = replace_na(${rc}, names(which.max(table(${rc})))))`,
+        mean: `df <- df %>% mutate(${rc} = replace_na(${rc}, round(mean(${rc}, na.rm = TRUE), 2)))`,
+        median: `df <- df %>% mutate(${rc} = replace_na(${rc}, round(median(${rc}, na.rm = TRUE), 2)))`,
+        mode: c.type === 'number' ? `df <- df %>% mutate(${rc} = replace_na(${rc}, as.numeric(names(which.max(table(${rc}))))))` : `df <- df %>% mutate(${rc} = replace_na(${rc}, names(which.max(table(${rc})))))`,
         ffill: `df <- df %>% fill(${rc}, .direction = "down")`,
         bfill: `df <- df %>% fill(${rc}, .direction = "up")`,
         interpolate: `df <- df %>% mutate(${rc} = zoo::na.approx(${rc}, na.rm = FALSE))`,
-        value: `df <- df %>% mutate(${rc} = replace_na(${rc}, ${JSON.stringify(String(p.value))}))`,
+        value: `df <- df %>% mutate(${rc} = replace_na(${rc}, ${c.type === 'number' && E.isNum(E.parseNum(p.value)) ? E.parseNum(p.value) : JSON.stringify(String(p.value))}))`,
       }[p.method];
       return { label: `Filled ${n0.toLocaleString()} missing in ${p.col} with ${desc}`, py, r };
     },
@@ -490,7 +495,7 @@
       const bv = (i) => (p.bIsConst ? +p.b : b.values[i]);
       const f = { '+': (x, y) => x + y, '-': (x, y) => x - y, '*': (x, y) => x * y, '/': (x, y) => (y === 0 ? null : x / y) }[p.op];
       const vals = a.values.map((x, i) => { const y = bv(i); return E.isNum(x) && E.isNum(y) ? f(x, y) : null; });
-      const newCol = { name: p.name, type: 'number', values: vals, invalid: 0, invalidExamples: [], unit: a.unit === '$' && (p.op === '+' || p.op === '-' || (p.op === '*' && p.bIsConst)) ? '$' : undefined };
+      const newCol = { name: p.name, type: 'number', values: vals, invalid: 0, invalidExamples: [], unit: a.unit && a.unit !== '%' && (p.op === '+' || p.op === '-' || (p.op === '*' && p.bIsConst)) ? a.unit : undefined };
       const idx = ds.cols.findIndex((x) => x.name === p.name);
       if (idx >= 0) ds.cols[idx] = newCol; else ds.cols.push(newCol);
       const bpy = p.bIsConst ? p.b : `df[${E.pyStr(p.b)}]`, br = p.bIsConst ? p.b : E.rName(p.b);
@@ -709,19 +714,35 @@
 
   /* pipeline scripts */
   E.pipelineScript = function (ds, lang) {
-    const file = ds.file || 'data.csv';
+    const file = ds.file || 'data.csv'; const xl = /\.(xlsx?|xlsm|ods)$/i.test(file);
+    const orig = ds.original || ds.cols; const out = ds.name.replace(/\.\w+$/, '').replace(/[^\w.-]+/g, '_') + '_clean.csv';
+    const nums = orig.filter((c) => c.type === 'number'), dates = orig.filter((c) => c.type === 'date');
     if (lang === 'r') {
-      const read = /\.xlsx?$/i.test(file) ? `df <- readxl::read_excel(${JSON.stringify(file)})` : `df <- readr::read_csv(${JSON.stringify(file)})`;
-      return ['# Explain Your Data — cleaning pipeline for ' + ds.name, 'library(tidyverse)', 'library(lubridate)', '', read, '']
+      const sheet = ds.sheet ? `, sheet = ${JSON.stringify(ds.sheet)}` : '', skip = ds.headerRow ? `, skip = ${ds.headerRow}` : '';
+      const delim = ds.delimiter && ds.delimiter !== ',' ? `readr::read_delim(${JSON.stringify(file)}, delim = ${JSON.stringify(ds.delimiter)}, col_types = cols(.default = "c")${skip})` : `readr::read_csv(${JSON.stringify(file)}, col_types = cols(.default = "c")${skip})`;
+      const read = xl ? `df <- readxl::read_excel(${JSON.stringify(file)}${sheet}${skip}, col_types = "text")` : `df <- ${delim}`;
+      const types = ['# Same column types the app detected (read as text first so nothing is lost)']
+        .concat(nums.map((c) => `df <- df %>% mutate(${E.rName(c.name)} = readr::parse_number(${E.rName(c.name)}${c.decimalComma ? ', locale = locale(decimal_mark = ",", grouping_mark = ".")' : ''}))`))
+        .concat(dates.map((c) => `df <- df %>% mutate(${E.rName(c.name)} = as.Date(lubridate::parse_date_time(${E.rName(c.name)}, orders = c(${c.dateOrder === 'mdy' ? '"mdy", "ymd", "mdy HM", "ymd HMS"' : '"dmy", "ymd", "dmy HM", "ymd HMS"'}), quiet = TRUE)))`));
+      const names = ['# Use the same column names as the app (blank unnamed columns dropped, repeated names numbered)', 'df <- df %>% select(!(starts_with("...") & where(~ all(is.na(.x)))))', `names(df) <- c(${orig.map((c) => JSON.stringify(c.name)).join(', ')})`, ''];
+      const hdr = ds.removedHeaderRows ? ['# Drop rows that repeat the header', 'df <- df %>% filter(!if_all(everything(), ~ .x %in% names(df)))', ''] : [];
+      return ['# Explain Your Data — cleaning pipeline for ' + ds.name, 'library(tidyverse)', 'library(lubridate)', '', read, ''].concat(names, hdr, types, [''])
         .concat(ds.steps.flatMap((s) => ['# ' + s.label, s.r, '']))
-        .concat(['write_csv(df, "' + ds.name.replace(/\.\w+$/, '') + '_clean.csv")'])
-        .join('\n');
+        .concat([`write_csv(df, ${JSON.stringify(out)})`]).join('\n');
     }
-    const read = /\.xlsx?$/i.test(file) ? `df = pd.read_excel(${E.pyStr(file)})` : `df = pd.read_csv(${E.pyStr(file)})`;
-    return ['# Explain Your Data — cleaning pipeline for ' + ds.name, 'import pandas as pd', '', read, '']
+    const sheet = ds.sheet ? `, sheet_name=${E.pyStr(ds.sheet)}` : '', skip = ds.headerRow ? `, skiprows=${ds.headerRow}` : '';
+    const sep = ds.delimiter && ds.delimiter !== ',' ? `, sep=${E.pyStr(ds.delimiter)}` : '';
+    const read = xl ? `df = pd.read_excel(${E.pyStr(file)}${sheet}${skip}, dtype=str)` : `df = pd.read_csv(${E.pyStr(file)}${sep}${skip}, dtype=str, keep_default_na=True)`;
+    const dateHelper = dates.length ? ['', 'def to_date(s, dayfirst):', '    # year-first strings (2025-09-07, 2026/03/16) are never day-first; parse them separately', '    s = s.astype("string").str.replace(r"\\s*(GMT|UTC)[+-]?\\d*$", "", regex=True)', '    ymd = s.str.match(r"^\\d{4}[-/.]").fillna(False)', '    a = pd.to_datetime(s.where(ymd), format="mixed", yearfirst=True, errors="coerce")', '    b = pd.to_datetime(s.where(~ymd), format="mixed", dayfirst=dayfirst, errors="coerce")', '    return a.fillna(b)'] : [];
+    const helper = nums.length ? ['', 'def to_number(s, decimal_comma=False):', '    """Parse numbers written with currency symbols, % signs, thousands separators or (negatives)."""', '    t = s.astype("string").str.strip()', '    neg = t.str.match(r"^\\(.*\\)$").fillna(False)', '    t = t.str.replace(r"(?i)\\b(AUD|USD|EUR|GBP|BDT|INR|NZD|CAD)\\b|[$€£¥₹৳%\\s()]", "", regex=True)', '    t = t.str.replace(".", "", regex=False).str.replace(",", ".", regex=False) if decimal_comma else t.str.replace(",", "", regex=False)', '    v = pd.to_numeric(t, errors="coerce")', '    return v.where(~neg, -v.abs())'] : [];
+    const types = ['# Same column types the app detected (read as text first so nothing is lost)']
+      .concat(nums.map((c) => `df[${E.pyStr(c.name)}] = to_number(df[${E.pyStr(c.name)}]${c.decimalComma ? ', decimal_comma=True' : ''})`))
+      .concat(dates.map((c) => `df[${E.pyStr(c.name)}] = to_date(df[${E.pyStr(c.name)}], dayfirst=${c.dateOrder === 'mdy' ? 'False' : 'True'})`));
+    const names = ['# Use the same column names as the app (blank unnamed columns dropped, repeated names numbered)', 'df = df.loc[:, ~(df.columns.astype(str).str.startswith("Unnamed:") & df.isna().all())]', `df.columns = [${orig.map((c) => E.pyStr(c.name)).join(', ')}]`, ''];
+    const hdr = ds.removedHeaderRows ? ['# Drop rows that repeat the header', 'df = df[~df.eq(pd.Series(df.columns, index=df.columns)).all(axis=1)]', ''] : [];
+    return ['# Explain Your Data — cleaning pipeline for ' + ds.name, 'import numpy as np', 'import pandas as pd'].concat(helper, dateHelper, ['', read, ''], names, hdr, types, [''])
       .concat(ds.steps.flatMap((s) => ['# ' + s.label, s.py, '']))
-      .concat(['df.to_csv("' + ds.name.replace(/\.\w+$/, '') + '_clean.csv", index=False)'])
-      .join('\n');
+      .concat([`df.to_csv(${E.pyStr(out)}, index=False)`]).join('\n');
   };
 
   /* ---------- joins between datasets ---------- */
